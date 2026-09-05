@@ -1,19 +1,19 @@
-# Run a coding agent on your Slate tasks
+# Run a coding agent on your wrkflw tasks
 
-`slate watch` gives one agent its own queue. It picks up tasks you have assigned
+`wrkflw watch` gives one agent its own queue. It picks up tasks you have assigned
 to that agent and marked Ready, runs your coding agent on each one in a throwaway
 copy of your repository, and puts the finished work into Review for you.
 
 The agent does the work and reports the result itself. The watcher only decides
 what to offer it and keeps each attempt isolated.
 
-Everything below has been run end to end against a real Slate server.
+Everything below has been run end to end against a real wrkflw server.
 
 ## Before you start
 
 You need:
 
-- A Slate agent and its token. Create the agent in Settings, then copy the token
+- A wrkflw agent and its token. Create the agent in Settings, then copy the token
   it shows you once.
 - A Git repository, on a named branch, with nothing uncommitted.
 - A coding agent on your `PATH`. Codex and Claude Code are covered below.
@@ -27,12 +27,12 @@ portable setup is to choose the file explicitly and keep that export in the
 shell that starts the watcher:
 
 ```bash
-mkdir -p "$HOME/.config/slate"
-export SLATE_CONFIG="$HOME/.config/slate/config.json"
+mkdir -p "$HOME/.config/wrkflw"
+export WRKFLW_CONFIG="$HOME/.config/wrkflw/config.json"
 ```
 
-Save the following JSON at that path. Without `SLATE_CONFIG`, Slate instead
-uses `slate/config.json` under the operating system's user configuration
+Save the following JSON at that path. Without `WRKFLW_CONFIG`, wrkflw instead
+uses `wrkflw/config.json` under the operating system's user configuration
 directory.
 
 ```json
@@ -40,26 +40,26 @@ directory.
   "profiles": {
     "codex": {
       "agentId": "4fb10cce-f7c8-43bb-9d43-9bcb2bacaf08",
-      "tokenEnv": "SLATE_CODEX_TOKEN",
+      "tokenEnv": "WRKFLW_CODEX_TOKEN",
       "command": ["codex", "exec", "-"]
     },
     "claude": {
       "agentId": "9a3c71e2-05b8-4d2f-8c14-6f2b0d3a7e55",
-      "tokenEnv": "SLATE_CLAUDE_TOKEN",
+      "tokenEnv": "WRKFLW_CLAUDE_TOKEN",
       "command": ["claude", "-p", "--permission-mode", "acceptEdits"]
     }
   }
 }
 ```
 
-Protect the file with `chmod 600 "$SLATE_CONFIG"`. It stores token variable
+Protect the file with `chmod 600 "$WRKFLW_CONFIG"`. It stores token variable
 names rather than token values, but it is still local agent configuration.
 
-Give each profile its own Slate agent. Two profiles sharing one agent compete
+Give each profile its own wrkflw agent. Two profiles sharing one agent compete
 for the same queue, and the second to start refuses because the first already
 has a task in progress.
 
-- `agentId` is the ID Slate shows for the agent. The watcher refuses to start if
+- `agentId` is the ID wrkflw shows for the agent. The watcher refuses to start if
   the token belongs to somebody else, so a copy-paste mistake stops immediately
   instead of running work as the wrong identity.
 - `tokenEnv` is the **name of the environment variable** holding the token, never
@@ -72,7 +72,7 @@ has a task in progress.
 Export the token in the shell you start the watcher from:
 
 ```bash
-export SLATE_CODEX_TOKEN='<the agent token from Slate>'
+export WRKFLW_CODEX_TOKEN='<the agent token from wrkflw>'
 ```
 
 Both commands above have been tested. Both read their prompt from standard input
@@ -88,7 +88,7 @@ thing to check when the executor fails to start.
 
 ```bash
 cd ~/code/my-project
-slate watch --profile codex
+wrkflw watch --profile codex
 ```
 
 It prints who it is running as, which repository it is watching, and then waits.
@@ -108,7 +108,7 @@ Options:
 
 1. The watcher finds the highest-priority, oldest Ready task assigned to that
    agent.
-2. It creates a branch, `slate/<task-id>-<run>`, and a fresh worktree from your
+2. It creates a branch, `wrkflw/<task-id>-<run>`, and a fresh worktree from your
    source commit as it existed when the watcher started, under your user cache
    directory. Restart the watcher after updating the source branch so later
    tasks use the new commit.
@@ -117,7 +117,7 @@ Options:
    a claim, so two machines watching the same agent cannot both work the task.
 5. The agent implements it, runs whatever checks the repository defines, commits,
    and submits a completion report. It cannot set the status itself: while a run
-   owns a task, Slate refuses direct status changes with
+   owns a task, wrkflw refuses direct status changes with
    `managed_run_status_locked`. Claim reaches In Progress and the report reaches
    Review.
 6. Submitting that report moves the task to Review. The watcher confirms the
@@ -166,9 +166,9 @@ it will not survive.
 ## Retained runs
 
 ```bash
-slate runs list                    # every retained run
-slate runs list --profile codex    # just this profile's
-slate runs clean <run-id>          # release one
+wrkflw runs list                    # every retained run
+wrkflw runs list --profile codex    # just this profile's
+wrkflw runs clean <run-id>          # release one
 ```
 
 `clean` removes the worktree and keeps the branch, so any commits stay reachable.
@@ -201,7 +201,7 @@ report, and it does that with a key that makes a duplicate impossible.
 
 ## Security
 
-The agent gets its own Slate token, which can only touch tasks assigned to that
+The agent gets its own wrkflw token, which can only touch tasks assigned to that
 agent. It never gets your session or a personal token.
 
 It runs in a throwaway worktree, not your checkout. That stops one run from
@@ -231,7 +231,7 @@ match. Nothing was created; fix the profile.
 **"does not support managed runs yet":** the server is older than the CLI. Deploy
 the server first; see below.
 
-**"is holding 10 retained worktrees":** clean one with `slate runs clean`.
+**"is holding 10 retained worktrees":** clean one with `wrkflw runs clean`.
 
 **The executor exits immediately:** usually its own credentials are missing from
 the environment. Run the same command by hand in the same shell to confirm.
@@ -243,7 +243,7 @@ support it:
 
 1. Apply the migration and deploy the server.
 2. Confirm it advertises the capability using an agent token:
-   `SLATE_API_TOKEN="$SLATE_CODEX_TOKEN" slate auth status` shows
+   `WRKFLW_API_TOKEN="$WRKFLW_CODEX_TOKEN" wrkflw auth status` shows
    `"managedRuns": true`.
 3. Release the CLI.
 4. Publish profiles for your agents.

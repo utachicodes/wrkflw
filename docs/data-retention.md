@@ -1,6 +1,6 @@
 # Operational data retention
 
-Slate keeps customer-created boards, tasks, agent identities, entitlements, and future billing history until the customer or an explicit account workflow removes them. The daily cleanup job only removes short-lived operational records.
+wrkflw keeps customer-created boards, tasks, agent identities, entitlements, and future billing history until the customer or an explicit account workflow removes them. The daily cleanup job only removes short-lived operational records.
 
 | Record class | Retention | Action |
 | --- | --- | --- |
@@ -21,11 +21,11 @@ Every path uses an indexed timestamp lookup, row locks with `SKIP LOCKED`, and t
 
 The JSON report includes affected rows, batch count, and remaining-backlog status for every path. A `null` backlog means the deadline or an error prevented the check. `budgetReached` signals that a row or time budget stopped the run. Alert when either `budgetReached`, a `null` backlog, or a true backlog remains after two consecutive daily executions. The command continues to later paths after an individual failure, then exits unsuccessfully so Cloud Run records the failed execution.
 
-Production deploys a single-task `slate-cleanup` Cloud Run Job and schedules it daily at 03:17 UTC. One retry is allowed. The job has its own process and database connection, so a cleanup error cannot stop or restart the serving `slate` service. Inspect recent executions and their JSON reports with:
+Production deploys a single-task `wrkflw-cleanup` Cloud Run Job and schedules it daily at 03:17 UTC. One retry is allowed. The job has its own process and database connection, so a cleanup error cannot stop or restart the serving `wrkflw` service. Inspect recent executions and their JSON reports with:
 
 ```bash
-gcloud run jobs executions list --job slate-cleanup --region europe-west1
-gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="slate-cleanup"' --limit 20
+gcloud run jobs executions list --job wrkflw-cleanup --region europe-west1
+gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="wrkflw-cleanup"' --limit 20
 ```
 
-Operators can run the same idempotent cleanup locally or as a one-off job with `slate cleanup`. A budget-limited run resumes safely on its next invocation without long table locks.
+Operators can run the same idempotent cleanup locally or as a one-off job with `wrkflw cleanup`. A budget-limited run resumes safely on its next invocation without long table locks.

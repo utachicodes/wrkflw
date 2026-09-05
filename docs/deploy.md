@@ -1,18 +1,18 @@
-# Deploy Slate
+# Deploy wrkflw
 
-Production target: GCP project `slate-do-production`.
+Production target: GCP project `wrkflw-do-production`.
 
 ## Local
 
 ```bash
-createdb slate_dev
-export DATABASE_URL=postgres://localhost/slate_dev?sslmode=disable
+createdb wrkflw_dev
+export DATABASE_URL=postgres://localhost/wrkflw_dev?sslmode=disable
 export ADMIN_EMAIL=you@example.com
 export ADMIN_PASSWORD='use-a-long-password'
 export INVITE_CODE='use-a-long-random-shared-code'
 export APP_BASE_URL='http://localhost:8080'
 export RESEND_API_KEY='re_...'
-export RESEND_FROM='Slate <passwords@mail.slate.do>'
+export RESEND_FROM='wrkflw <passwords@mail.wrkflw>'
 just migrate
 just seed-admin
 just serve
@@ -22,20 +22,20 @@ Open `http://localhost:8080`.
 
 ## GCP
 
-1. Set `PROJECT_ID=slate-do-production`.
+1. Set `PROJECT_ID=wrkflw-do-production`.
 2. Set `DB_PASSWORD`, `DATABASE_URL`, `SESSION_SECRET`, and `RESEND_API_KEY`.
    Set `INVITE_CODE` too when invite registration should be enabled.
 3. Run `scripts/gcp-bootstrap.sh` once for a new project. This creates the
-   dedicated Slate service accounts and their scoped access.
+   dedicated wrkflw service accounts and their scoped access.
 4. Connect the GitHub repo to Cloud Build.
-5. Create the `slate-main-deploy` Cloud Build trigger for `^main$` using `cloudbuild.yaml`.
-6. Run `scripts/gcp-deploy.sh` only when a manual recovery deploy is needed. It impersonates `slate-deploy` for every GCP operation, while health and capacity checks still run from the operator's machine.
+5. Create the `wrkflw-main-deploy` Cloud Build trigger for `^main$` using `cloudbuild.yaml`.
+6. Run `scripts/gcp-deploy.sh` only when a manual recovery deploy is needed. It impersonates `wrkflw-deploy` for every GCP operation, while health and capacity checks still run from the operator's machine.
 
 After authorizing the Cloud Build GitHub App for the repository, create the trigger once:
 
 ```bash
-PROJECT_ID=slate-do-production
-BUILD_SERVICE_ACCOUNT="slate-deploy@$PROJECT_ID.iam.gserviceaccount.com"
+PROJECT_ID=wrkflw-do-production
+BUILD_SERVICE_ACCOUNT="wrkflw-deploy@$PROJECT_ID.iam.gserviceaccount.com"
 OPERATOR_PRINCIPAL="user:$(gcloud config get-value account)"
 PROJECT_ID="$PROJECT_ID" OPERATOR_PRINCIPAL="$OPERATOR_PRINCIPAL" bash scripts/gcp-identities.sh
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
@@ -45,69 +45,69 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 gcloud builds triggers create github \
   --project="$PROJECT_ID" \
   --region=global \
-  --name=slate-main-deploy \
-  --repo-owner=owainlewis \
-  --repo-name=slate.do \
+  --name=wrkflw-main-deploy \
+  --repo-owner=utachicodes \
+  --repo-name=wrkflw \
   --branch-pattern='^main$' \
   --build-config=cloudbuild.yaml \
   --include-logs-with-status \
   --service-account="projects/$PROJECT_ID/serviceAccounts/$BUILD_SERVICE_ACCOUNT"
 ```
 
-Every pull request and push to `main` must pass the GitHub `Required CI` check. It provisions disposable PostgreSQL 18, fails on skipped database tests, and runs the Chromium browser suite. Server test events stream while the suite runs, Go emits goroutine stacks after five minutes, each browser test stops after one minute, and GitHub stops the complete job after ten minutes. Cloud Build waits up to fifteen minutes for that exact check, so a hung CI run reaches a visible final conclusion before the deploy gate exits. It then runs the fast Go checks, builds and pushes a build-unique image, resolves it to an immutable digest, executes a per-commit migration job, deploys the service only after migrations pass, verifies the deployed digest, and checks `https://slate.do/api/health`. A failed test, build, migration, deploy, or health check stops the pipeline. Builds can compile in parallel, but a Cloud Storage lock serializes migrations and service deployment. After acquiring the lock, stale builds stop before changing production, so an older overlapping build cannot replace a newer release. An abandoned lock is removed only after Cloud Build confirms its owning build is no longer running. The identity cutover keeps the existing `${PROJECT_ID}_cloudbuild/deploy/slate.lock` location so builds started with either configuration coordinate on the same lock. The deploy identity uses `roles/cloudbuild.builds.editor` to let the trigger create builds and to inspect or stop lock owners, plus `roles/serviceusage.serviceUsageConsumer` so an impersonated manual build can consume the Cloud Build API. It has `iam.serviceAccounts.actAs` on itself because the same identity triggers and executes each build. The operator has Service Account User and Token Creator only on `slate-deploy`, allowing the manual recovery script to impersonate the deploy identity without granting the human project-wide Run or Scheduler roles. Artifact Registry and build-bucket access is scoped to those resources. The dedicated build bucket grants object administration for manual source and logs, plus bucket metadata viewing required by manual Cloud Build submission. The existing Cloud Build bucket grants the same bucket-scoped roles for deployment locking.
+Every pull request and push to `main` must pass the GitHub `Required CI` check. It provisions disposable PostgreSQL 18, fails on skipped database tests, and runs the Chromium browser suite. Server test events stream while the suite runs, Go emits goroutine stacks after five minutes, each browser test stops after one minute, and GitHub stops the complete job after ten minutes. Cloud Build waits up to fifteen minutes for that exact check, so a hung CI run reaches a visible final conclusion before the deploy gate exits. It then runs the fast Go checks, builds and pushes a build-unique image, resolves it to an immutable digest, executes a per-commit migration job, deploys the service only after migrations pass, verifies the deployed digest, and checks `https://wrkflw/api/health`. A failed test, build, migration, deploy, or health check stops the pipeline. Builds can compile in parallel, but a Cloud Storage lock serializes migrations and service deployment. After acquiring the lock, stale builds stop before changing production, so an older overlapping build cannot replace a newer release. An abandoned lock is removed only after Cloud Build confirms its owning build is no longer running. The identity cutover keeps the existing `${PROJECT_ID}_cloudbuild/deploy/wrkflw.lock` location so builds started with either configuration coordinate on the same lock. The deploy identity uses `roles/cloudbuild.builds.editor` to let the trigger create builds and to inspect or stop lock owners, plus `roles/serviceusage.serviceUsageConsumer` so an impersonated manual build can consume the Cloud Build API. It has `iam.serviceAccounts.actAs` on itself because the same identity triggers and executes each build. The operator has Service Account User and Token Creator only on `wrkflw-deploy`, allowing the manual recovery script to impersonate the deploy identity without granting the human project-wide Run or Scheduler roles. Artifact Registry and build-bucket access is scoped to those resources. The dedicated build bucket grants object administration for manual source and logs, plus bucket metadata viewing required by manual Cloud Build submission. The existing Cloud Build bucket grants the same bucket-scoped roles for deployment locking.
 
 `main` branch protection requires a pull request and the `Required CI` check for
 all users, including administrators. Repository administrators should verify
 the rule after changing workflow or repository settings:
 
 ```bash
-gh api repos/owainlewis/slate.do/branches/main/protection
+gh api repos/utachicodes/wrkflw/branches/main/protection
 ```
 
-The deploy also updates the independent `slate-cleanup` Cloud Run Job and its daily Cloud Scheduler trigger. Its bounded retention policy and operations are documented in [data retention](data-retention.md). A cleanup execution failure is visible in Cloud Run Jobs but does not stop the serving service.
+The deploy also updates the independent `wrkflw-cleanup` Cloud Run Job and its daily Cloud Scheduler trigger. Its bounded retention policy and operations are documented in [data retention](data-retention.md). A cleanup execution failure is visible in Cloud Run Jobs but does not stop the serving service.
 
 ### Production identities
 
-Slate uses four user-managed service accounts. No public or maintenance
+wrkflw uses four user-managed service accounts. No public or maintenance
 runtime can deploy Cloud Run resources, administer Scheduler, impersonate
 another service account, or access build storage.
 
 | Identity | Purpose | Access |
 | --- | --- | --- |
-| `slate-deploy` | Cloud Build and deploy | Cloud Build execution, Cloud Run and Scheduler deployment, Cloud Logging, the `slate` Artifact Registry repository, object and metadata access on the dedicated build and deployment-lock buckets, and `actAs` only for the three runtime identities |
-| `slate-web` | Public `slate` service | Cloud SQL Client conditionally restricted to `slate-postgres-ew1`; accessor on `slate-database-url`, `slate-session-secret`, `slate-resend-api-key`, and the optional `slate-invite-code` |
-| `slate-maintenance` | Migration and cleanup jobs | Cloud SQL Client conditionally restricted to `slate-postgres-ew1`; accessor on `slate-database-url` only |
-| `slate-scheduler` | Scheduler caller | Cloud Run Invoker on the `slate-cleanup` job only |
+| `wrkflw-deploy` | Cloud Build and deploy | Cloud Build execution, Cloud Run and Scheduler deployment, Cloud Logging, the `wrkflw` Artifact Registry repository, object and metadata access on the dedicated build and deployment-lock buckets, and `actAs` only for the three runtime identities |
+| `wrkflw-web` | Public `wrkflw` service | Cloud SQL Client conditionally restricted to `wrkflw-postgres-ew1`; accessor on `wrkflw-database-url`, `wrkflw-session-secret`, `wrkflw-resend-api-key`, and the optional `wrkflw-invite-code` |
+| `wrkflw-maintenance` | Migration and cleanup jobs | Cloud SQL Client conditionally restricted to `wrkflw-postgres-ew1`; accessor on `wrkflw-database-url` only |
+| `wrkflw-scheduler` | Scheduler caller | Cloud Run Invoker on the `wrkflw-cleanup` job only |
 
-Cloud Build uses `slate-deploy` in both the trigger and `cloudbuild.yaml`.
+Cloud Build uses `wrkflw-deploy` in both the trigger and `cloudbuild.yaml`.
 Manual recovery builds also select it explicitly. Every Cloud Run service and
 job deployment supplies its runtime service account explicitly.
 
 For an existing project, stage the cutover without removing old access:
 
 ```bash
-PROJECT_ID=slate-do-production bash scripts/gcp-identities.sh
+PROJECT_ID=wrkflw-do-production bash scripts/gcp-identities.sh
 ```
 
 After the new main build has deployed successfully, inspect its migration
 execution and run the guarded production verification. This checks the trigger,
 runtime, job, and Scheduler identities, verifies health, runs cleanup directly,
 runs it through Scheduler, waits for success, and only then removes the old
-Slate project roles from the default compute service account:
+wrkflw project roles from the default compute service account:
 
 ```bash
-PROJECT_ID=slate-do-production bash scripts/gcp-finalize-identities.sh
+PROJECT_ID=wrkflw-do-production bash scripts/gcp-finalize-identities.sh
 ```
 
 Inspect the final policies with:
 
 ```bash
-gcloud projects get-iam-policy slate-do-production \
+gcloud projects get-iam-policy wrkflw-do-production \
   --flatten='bindings[].members' \
-  --filter='bindings.members:slate-' \
+  --filter='bindings.members:wrkflw-' \
   --format='table(bindings.members,bindings.role,bindings.condition.expression)'
-gcloud secrets get-iam-policy slate-database-url --project=slate-do-production
-gcloud run jobs get-iam-policy slate-cleanup --region=europe-west1 --project=slate-do-production
+gcloud secrets get-iam-policy wrkflw-database-url --project=wrkflw-do-production
+gcloud run jobs get-iam-policy wrkflw-cleanup --region=europe-west1 --project=wrkflw-do-production
 ```
 
 The role choices follow Google Cloud's guidance for
@@ -116,12 +116,12 @@ The role choices follow Google Cloud's guidance for
 [instance-scoped Cloud SQL IAM conditions](https://cloud.google.com/sql/docs/postgres/iam-conditions),
 and [authenticated Scheduler targets](https://cloud.google.com/scheduler/docs/http-target-auth).
 
-The migration job and service attach the production Cloud SQL instance in Europe West 1 because `slate-database-url` uses that socket. Deploys always replace the complete required secret mapping. They add `INVITE_CODE` only when `slate-invite-code:latest` is accessible. If the live service already uses `INVITE_CODE` but that version becomes inaccessible, deployment fails instead of silently disabling early-access registration.
+The migration job and service attach the production Cloud SQL instance in Europe West 1 because `wrkflw-database-url` uses that socket. Deploys always replace the complete required secret mapping. They add `INVITE_CODE` only when `wrkflw-invite-code:latest` is accessible. If the live service already uses `INVITE_CODE` but that version becomes inaccessible, deployment fails instead of silently disabling early-access registration.
 
-The production Cloud Run service is `slate` in `europe-west1`; the `slate.do` domain mapping routes to it.
-The Cloud SQL instance is `slate-postgres-ew1` in `europe-west1` and uses PostgreSQL 18.
+The production Cloud Run service is `wrkflw` in `europe-west1`; the `wrkflw` domain mapping routes to it.
+The Cloud SQL instance is `wrkflw-postgres-ew1` in `europe-west1` and uses PostgreSQL 18.
 The server applies pending database migrations under a Postgres advisory lock before it begins serving traffic. A failed migration prevents the new revision from starting.
-The required runtime secrets are `slate-database-url`, `slate-session-secret`, and `slate-resend-api-key`. Invite registration is off by default. To enable it, create a separate Secret Manager secret and expose its latest version to the service as `INVITE_CODE`. Never put secret values in source, command history, a URL, or a non-secret environment file.
+The required runtime secrets are `wrkflw-database-url`, `wrkflw-session-secret`, and `wrkflw-resend-api-key`. Invite registration is off by default. To enable it, create a separate Secret Manager secret and expose its latest version to the service as `INVITE_CODE`. Never put secret values in source, command history, a URL, or a non-secret environment file.
 `OWNER_EMAIL` and `OWNER_PASSWORD` remain supported as legacy aliases.
 
 Admin credentials are only needed while running `seed-admin` and should be supplied through a secure operator environment. Do not add them to the Cloud Run service or source control.
@@ -153,8 +153,8 @@ Cloud Run has a 20-second outer request timeout and accepts 16 concurrent reques
 Cloud Build and `scripts/gcp-deploy.sh` print the effective instance, pool, connection, reserve, and concurrency values after a deploy. They also verify the service-level maximum and the pool size reported by `/api/health`. Inspect the live values at any time with:
 
 ```bash
-gcloud run services describe slate \
-  --project=slate-do-production \
+gcloud run services describe wrkflw \
+  --project=wrkflw-do-production \
   --region=europe-west1
 ```
 
@@ -185,18 +185,18 @@ The present `db-f1-micro` tier is a low-cost shared-core tier without a Cloud SQ
 Password reset links are single-use, expire after one hour, and revoke all browser sessions when consumed. Request responses do not reveal whether an account exists. Requests are rate-limited by both client IP and normalized email.
 Email requests are written to a Postgres outbox before the generic response is returned. The Cloud Run revision keeps one instance with CPU available so its worker can deliver and retry queued mail without making valid accounts distinguishable by request latency.
 
-Verify `mail.slate.do` as a sending domain in Resend, then store the API key in Secret Manager without putting it on the command line:
+Verify `mail.wrkflw` as a sending domain in Resend, then store the API key in Secret Manager without putting it on the command line:
 
 ```bash
-gcloud secrets create slate-resend-api-key --replication-policy=automatic
-gcloud secrets versions add slate-resend-api-key --data-file=-
+gcloud secrets create wrkflw-resend-api-key --replication-policy=automatic
+gcloud secrets versions add wrkflw-resend-api-key --data-file=-
 ```
 
 Cloud Run uses these non-secret settings:
 
 ```text
-APP_BASE_URL=https://slate.do
-RESEND_FROM=Slate <passwords@mail.slate.do>
+APP_BASE_URL=https://wrkflw
+RESEND_FROM=Wrkflw <passwords@mail.wrkflw>
 ```
 
 The reset feature reports itself as temporarily unavailable when either `RESEND_API_KEY` or `RESEND_FROM` is missing. Use a verified sender domain. Resend rejects arbitrary recipients from an unverified domain.
@@ -208,19 +208,19 @@ When `INVITE_CODE` is present, `/early-access` accepts a reusable shared code an
 Configure the Cloud Run service with a Secret Manager reference:
 
 ```bash
-PROJECT_ID=slate-do-production
-gcloud secrets create slate-invite-code --project="$PROJECT_ID" --replication-policy=automatic
-gcloud secrets versions add slate-invite-code --project="$PROJECT_ID" --data-file=-
+PROJECT_ID=wrkflw-do-production
+gcloud secrets create wrkflw-invite-code --project="$PROJECT_ID" --replication-policy=automatic
+gcloud secrets versions add wrkflw-invite-code --project="$PROJECT_ID" --data-file=-
 PROJECT_ID="$PROJECT_ID" bash scripts/gcp-identities.sh
-gcloud run services update slate --project="$PROJECT_ID" --region=europe-west1 \
-  --update-secrets INVITE_CODE=slate-invite-code:latest
+gcloud run services update wrkflw --project="$PROJECT_ID" --region=europe-west1 \
+  --update-secrets INVITE_CODE=wrkflw-invite-code:latest
 ```
 
-Enter the secret value on standard input when prompted. The identity script must run after the secret exists and before invite registration is enabled. It grants `slate-web` access to the value and `slate-deploy` access to verify that the latest version is enabled. To rotate it, add a new secret version and deploy a new Cloud Run revision. The old code stops working as soon as all traffic uses the new revision. To disable registration, remove the mapping and deploy a new revision:
+Enter the secret value on standard input when prompted. The identity script must run after the secret exists and before invite registration is enabled. It grants `wrkflw-web` access to the value and `wrkflw-deploy` access to verify that the latest version is enabled. To rotate it, add a new secret version and deploy a new Cloud Run revision. The old code stops working as soon as all traffic uses the new revision. To disable registration, remove the mapping and deploy a new revision:
 
 ```bash
-PROJECT_ID=slate-do-production
-gcloud run services update slate --project="$PROJECT_ID" --region=europe-west1 \
+PROJECT_ID=wrkflw-do-production
+gcloud run services update wrkflw --project="$PROJECT_ID" --region=europe-west1 \
   --remove-secrets INVITE_CODE
 ```
 
@@ -231,9 +231,9 @@ Registration attempts are limited by both client IP and normalized email in Post
 Run account commands from a secure operator environment with `DATABASE_URL` set. They do not expose an HTTP admin API.
 
 ```bash
-go run ./server/cmd/slate accounts list
-go run ./server/cmd/slate accounts disable person@example.com
-go run ./server/cmd/slate accounts enable person@example.com
+go run ./server/cmd/wrkflw accounts list
+go run ./server/cmd/wrkflw accounts disable person@example.com
+go run ./server/cmd/wrkflw accounts enable person@example.com
 ```
 
 Disabling a member immediately deletes all sessions and revokes all API and agent tokens. Re-enabling permits a new password login, but does not restore revoked sessions or tokens.

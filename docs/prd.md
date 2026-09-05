@@ -1,4 +1,4 @@
-# Slate PRD
+# wrkflw PRD
 
 > **Superseded.** This describes the card-first product that came before the agent control plane pivot.
 > Kept for history. The current target is `docs/agentos-architecture.md`; the plan is `docs/agentos-plan.md`.
@@ -7,7 +7,7 @@ Status: Card-first control plane. Superseded by the agent control plane.
 
 ## Summary
 
-Slate is an agent control plane that helps people clarify intent, focus attention, and run all of their work with human and AI collaborators.
+wrkflw is an agent control plane that helps people clarify intent, focus attention, and run all of their work with human and AI collaborators.
 
 The card is the core unit of intent. Lists give cards useful context without forcing every card to be a task, goal, or project. A list can itself represent a project, goal, area, or workflow. Agents receive cards as prompts and return comments or outputs to the same card.
 
@@ -18,7 +18,7 @@ The card is the core unit of intent. Lists give cards useful context without for
 - Let cards stay generic. Do not require a task, goal, or project type.
 - Let lists carry context such as a project, goal, area, or category.
 - Keep properties small and visible.
-- Keep human judgment in Slate and agent execution available through the CLI.
+- Keep human judgment in wrkflw and agent execution available through the CLI.
 - Prefer one level of child cards over deep project trees.
 - Show agent contributions as comments and outputs, not runtime logs.
 
@@ -84,7 +84,7 @@ An output moves the card to Review and remains visible in the card conversation.
 
 An agent is a named external collaborator with a scoped credential. Cards can be assigned to agents. An agent token can only read and change that agent's assigned cards.
 
-Agents use the CLI or card API to pull, claim, update, comment, add outputs, request review, and complete assigned work. Slate shows the result and conversation, not model selection, retries, or execution logs.
+Agents use the CLI or card API to pull, claim, update, comment, add outputs, request review, and complete assigned work. wrkflw shows the result and conversation, not model selection, retries, or execution logs.
 
 ## Navigation
 
@@ -148,7 +148,7 @@ Not included:
 
 ## Success criteria
 
-Slate is working when:
+wrkflw is working when:
 
 - Any intent can be captured without deciding whether it is a task, goal, or project.
 - A list can represent a project or goal without requiring a separate object type.

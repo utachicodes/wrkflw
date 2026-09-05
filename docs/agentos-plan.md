@@ -1,15 +1,15 @@
-# Slate: the agent control plane delivery plan
+# wrkflw: the agent control plane delivery plan
 
 > Status: plan, for build. Verified against the working tree on 2026-08-16 (`3bbad4e`).
 > Target design: `docs/agentos-architecture.md`. Current state: `ARCHITECTURE.md`.
 
 ## 1. Decision
 
-Slate keeps its code, its auth, its CLI, its tests, and its deploy pipeline. It changes direction.
+wrkflw keeps its code, its auth, its CLI, its tests, and its deploy pipeline. It changes direction.
 
-Slate today is a task manager for humans with agent execution bolted on. It competes with Linear and Things and has a thin wedge. Slate after this plan is a control plane for agent work where the customer brings their own compute and their own model billing.
+wrkflw today is a task manager for humans with agent execution bolted on. It competes with Linear and Things and has a thin wedge. wrkflw after this plan is a control plane for agent work where the customer brings their own compute and their own model billing.
 
-The product becomes two parts: a hosted control plane you sign up for, and a `slate` CLI runner you install separately. The control plane must stay fully useful to someone who never installs the runner.
+The product becomes two parts: a hosted control plane you sign up for, and a `wrkflw` CLI runner you install separately. The control plane must stay fully useful to someone who never installs the runner.
 
 ## 2. What already exists
 
@@ -22,8 +22,8 @@ More than it feels like.
 | Agent identity | `auth.AgentUser`, `agents` | Identity and credential only. No instructions or backend. |
 | Agent authorization | `a.user(...)` guard, `/api/v1/agent/tasks/*` | Narrow-credential pattern already correct. |
 | Claim | `boards.AgentClaim` | Transactional and race-safe. Permanent, which is the problem. |
-| Run | `cli/cmd/slate/registry.go` | Client-side JSON on the watcher's disk. Server has only a uuid column. |
-| Adapter | `cli/cmd/slate/watch.go`, 969 lines | Worktrees, process groups, backoff, profiles. Real and working. |
+| Run | `cli/cmd/wrkflw/registry.go` | Client-side JSON on the watcher's disk. Server has only a uuid column. |
+| Adapter | `cli/cmd/wrkflw/watch.go`, 969 lines | Worktrees, process groups, backoff, profiles. Real and working. |
 | Board UI | `server/internal/web/dist/app.js`, 6,611 lines | Keep the board. Delete four views. |
 | Deploy | `cloudbuild.yaml`, `.github` | Keep. |
 
@@ -37,7 +37,7 @@ The two hard problems, isolated execution and the human-in-the-loop channel, are
 | No runners table or protocol | Large | Register, lease, heartbeat, long-poll dispatch, matching. |
 | Claim is permanent, not leased | Medium | A dead machine strands a task forever. Fatal for unattended work. |
 | Agents have no config | Medium | `AgentUser` has display name and purpose. Needs instructions, backend, workspace, overrides. |
-| No envelope assembly | Medium | Prompt wrapping is client-side in `cli/cmd/slate/prompt.go`. Must move server-side. |
+| No envelope assembly | Medium | Prompt wrapping is client-side in `cli/cmd/wrkflw/prompt.go`. Must move server-side. |
 | No question and answer semantics | Small | `card_entries` needs direction, options, answer, answered_at. |
 | Per-agent credentials, not per-run | Small | Rotate the pattern, not the architecture. |
 | Four views nobody needs | Small | Pure deletion. Do it first. |
@@ -107,7 +107,7 @@ server/internal/attachments/   NEW   upload, download, quota accounting
 server/internal/agents/        GROW  config fields
 server/internal/boards/        TRIM  claim logic moves to runs; entries gain Q&A
 server/internal/server/app.go  GROW  runner, run, attachment routes; run-token guard
-cli/cmd/slate/adapters/        NEW   one file per backend
+cli/cmd/wrkflw/adapters/        NEW   one file per backend
 ```
 
 Two new authority levels beside the existing ones: `runner` and `run`.
@@ -163,7 +163,7 @@ Decisions inside this work:
 | --- | --- | --- |
 | 1.1 | `048_agent_config` migration and `agents` store fields | Instructions, backend, workspace, limits, overrides persist |
 | 1.2 | Agent editor UI with an instructions textarea and backend overrides | An agent can be created and edited in the browser |
-| 1.3 | `slate agent list/show/create/update`, with `--instructions-file` | A long prompt can be edited in an editor and pushed |
+| 1.3 | `wrkflw agent list/show/create/update`, with `--instructions-file` | A long prompt can be edited in an editor and pushed |
 
 ### M2 - Runs as server rows
 
@@ -190,19 +190,19 @@ Decisions inside this work:
 | # | Task | Done when |
 | --- | --- | --- |
 | 4.1 | `server/internal/envelope`: five-layer assembly from agent, task, context | The envelope is built server-side and covered by tests |
-| 4.2 | `slate watch` becomes `slate runner start`, reading `~/.config/slate/runner.json` | The daemon starts from any directory and re-reads config each poll |
+| 4.2 | `wrkflw watch` becomes `wrkflw runner start`, reading `~/.config/wrkflw/runner.json` | The daemon starts from any directory and re-reads config each poll |
 | 4.3 | `Adapter` interface and the `claude-code` adapter, porting worktrees, process-group kill, backoff, dirty-checkout refusal | A task runs end to end on a real repo |
 | 4.4 | Event upload from adapter stream to `/runs/{id}/events` | A run is watched live from the browser while it executes |
-| 4.5 | `slate runs list/logs/cancel`, cancel killing the process group | Cancelling from the UI stops the process tree |
+| 4.5 | `wrkflw runs list/logs/cancel`, cancel killing the process group | Cancelling from the UI stops the process tree |
 
 ### M5 - Run tokens and the agent CLI
 
 | # | Task | Done when |
 | --- | --- | --- |
 | 5.1 | `054_run_tokens`, run-token guard, token minted per job and expiring with the run | A run token reads and writes exactly one task |
-| 5.2 | `slate task show/comment/done/block` under the run token, `--json` everywhere | The agent updates its own task from inside the run |
+| 5.2 | `wrkflw task show/comment/done/block` under the run token, `--json` everywhere | The agent updates its own task from inside the run |
 | 5.3 | `055_attachments`, upload and download API, quota accounting | A file attached in the browser is readable via the API |
-| 5.4 | `slate file put/get/list`, attachments materialised to `<workspace>/.slate/attachments/` before the run, parent attachments included | The agent reads its inputs as files and pushes an output back |
+| 5.4 | `wrkflw file put/get/list`, attachments materialised to `<workspace>/.wrkflw/attachments/` before the run, parent attachments included | The agent reads its inputs as files and pushes an output back |
 
 ### M6 - Ask, park, resume
 
@@ -212,7 +212,7 @@ The milestone that decides whether the system is any good.
 | --- | --- | --- |
 | 6.1 | `053_task_entry_questions`: direction, options, answer, answered_at | A question is distinguishable from a comment |
 | 6.2 | ~~Inbox view~~, plus unread count | **Shipped early.** The inbox is agent-authored entries account-wide, newest first, each linked to its task, with `044_inbox_index` behind it. Unread state still needs 6.1 |
-| 6.3 | `slate inbox ask --wait`, returning the answer or printing `parked` and exiting 75 | A reply inside the budget continues the run |
+| 6.3 | `wrkflw inbox ask --wait`, returning the answer or printing `parked` and exiting 75 | A reply inside the budget continues the run |
 | 6.4 | Park semantics: run parks, task blocks, process dies | Nothing burns overnight |
 | 6.5 | Resume: replying creates a new run with `resume_from_run_id`, envelope prepends the exchange | Ask at 2pm, answer at 6pm, it picks up where it left off |
 

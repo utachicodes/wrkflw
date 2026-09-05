@@ -1,6 +1,6 @@
 # Access model
 
-Slate keeps application authority separate from product access. Every account resolves to a server-owned Free or Pro plan.
+wrkflw keeps application authority separate from product access. Every account resolves to a server-owned Free or Pro plan.
 
 ## Roles
 
@@ -73,7 +73,7 @@ An account owner can create named agent identities without an email, password, r
 - An `agents` row is the durable identity until the owner deletes it. Its immutable ID owns every task assignment. It has a name, an optional purpose, and timestamps.
 - An `agent_credentials` row authenticates one identity. It contains a SHA-256 token hash, a safe display prefix when available, last-used and revoked times, and timestamps. The database permits at most one active credential per agent.
 
-Creation returns one plaintext `slate_agent_...` token once. Slate stores only its SHA-256 hash and safe prefix. List and creation responses expose identity and credential state but never a token hash. Credentials migrated from the earlier combined model have no display prefix because the plaintext token cannot be recovered from its hash.
+Creation returns one plaintext `wrkflw_agent_...` token once. wrkflw stores only its SHA-256 hash and safe prefix. List and creation responses expose identity and credential state but never a token hash. Credentials migrated from the earlier combined model have no display prefix because the plaintext token cannot be recovered from its hash.
 
 An agent token resolves to its owning account and immutable agent ID for assigned-work authorization. Agent credentials can read board and list metadata only when the board or list contains work assigned to that agent. These metadata responses do not include nested tasks. Agent credentials cannot use account-level board or list creation, editing, deletion, or reordering routes, or general task create, reorder, move, and delete routes. Supported general task reads and updates are always restricted to that agent's assignments. An agent cannot read, claim, or mutate another agent's assigned work, even when both agents belong to the same account. Claim and status changes remain atomic.
 
@@ -81,4 +81,4 @@ Free permits one agent and Pro permits five. Names are stored trimmed and must b
 
 Revoking a credential leaves the agent identity and assignments intact, and the identity still consumes an agent slot. Deleting an agent removes its identity, credentials, and credential-rotation records. Assigned cards remain but become unassigned. Comments and outputs remain with their stored author name, so the conversation stays understandable after the identity is deleted. Legacy archived identities are deleted during migration without exposing or recreating plaintext credentials.
 
-Slate does not currently have a vetted image upload or object-storage pipeline. Primary users and agent identities therefore use deterministic initials-and-colour avatars derived from their stored identity. Display names are escaped before rendering. Uploaded files and external avatar URLs are intentionally unsupported until image validation, processing, scanning, and durable storage are designed.
+wrkflw does not currently have a vetted image upload or object-storage pipeline. Primary users and agent identities therefore use deterministic initials-and-colour avatars derived from their stored identity. Display names are escaped before rendering. Uploaded files and external avatar URLs are intentionally unsupported until image validation, processing, scanning, and durable storage are designed.

@@ -1,8 +1,8 @@
 # API rate limits
 
-Slate enforces rolling 60-second limits in PostgreSQL so every Cloud Run instance shares the same state. Each admitted timestamp is held in a bounded array under a row lock.
+wrkflw enforces rolling 60-second limits in PostgreSQL so every Cloud Run instance shares the same state. Each admitted timestamp is held in a bounded array under a row lock.
 
-Authenticated requests reserve an exact credential slot before the session or token lookup. A valid credential then finalizes account admission. If the account is full, Slate refunds that credential reservation before returning 429. Invalid credentials keep their reservation, so repeated authentication work is bounded. When a stale session cookie falls back to a bearer token, Slate cancels the unused session reservation. One final allowed or rejected metric is recorded for the HTTP request.
+Authenticated requests reserve an exact credential slot before the session or token lookup. A valid credential then finalizes account admission. If the account is full, wrkflw refunds that credential reservation before returning 429. Invalid credentials keep their reservation, so repeated authentication work is bounded. When a stale session cookie falls back to a bearer token, wrkflw cancels the unused session reservation. One final allowed or rejected metric is recorded for the HTTP request.
 
 ## Launch defaults
 
