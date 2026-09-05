@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/entitlements"
-	"github.com/owainlewis/slate.do/server/internal/httpapi"
+	"github.com/utachicodes/wrkflw/server/internal/entitlements"
+	"github.com/utachicodes/wrkflw/server/internal/httpapi"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -739,7 +739,7 @@ func (s *Service) CreateAPIToken(w http.ResponseWriter, r *http.Request, user Us
 		return
 	}
 
-	plain, err := randomToken("slate")
+	plain, err := randomToken("wrkflw")
 	if err != nil {
 		writeInternalError(w, err, "API token could not be created")
 		return

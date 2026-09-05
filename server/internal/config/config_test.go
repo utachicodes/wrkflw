@@ -28,7 +28,7 @@ func TestFromEnvDefaults(t *testing.T) {
 	if cfg.InviteCode != "" {
 		t.Fatalf("InviteCode = %q, want empty when unset", cfg.InviteCode)
 	}
-	if cfg.AppBaseURL != "https://slate.do" {
+	if cfg.AppBaseURL != "https://wrkflw" {
 		t.Fatalf("AppBaseURL = %q, want production URL", cfg.AppBaseURL)
 	}
 	if cfg.ResendAPIKey != "" || cfg.ResendFrom != "" {
@@ -45,10 +45,10 @@ func TestFromEnvDefaults(t *testing.T) {
 func TestFromEnvPasswordResetConfiguration(t *testing.T) {
 	t.Setenv("APP_BASE_URL", " https://example.com ")
 	t.Setenv("RESEND_API_KEY", " re_secret ")
-	t.Setenv("RESEND_FROM", " Slate <passwords@example.com> ")
+	t.Setenv("RESEND_FROM", " Wrkflw <passwords@example.com> ")
 
 	cfg := mustConfig(t)
-	if cfg.AppBaseURL != "https://example.com" || cfg.ResendAPIKey != "re_secret" || cfg.ResendFrom != "Slate <passwords@example.com>" {
+	if cfg.AppBaseURL != "https://example.com" || cfg.ResendAPIKey != "re_secret" || cfg.ResendFrom != "Wrkflw <passwords@example.com>" {
 		t.Fatalf("password reset config = %#v", cfg)
 	}
 }

@@ -50,9 +50,9 @@ func (s *ResendSender) SendPasswordReset(ctx context.Context, email string, rese
 	}{
 		From:    s.from,
 		To:      []string{email},
-		Subject: "Reset your Slate password",
-		HTML:    fmt.Sprintf(`<p>We received a request to reset your Slate password.</p><p><a href="%s">Choose a new password</a></p><p>This link expires in one hour. If you did not request this, you can ignore this email.</p>`, html.EscapeString(resetURL)),
-		Text:    fmt.Sprintf("Reset your Slate password:\n\n%s\n\nThis link expires in one hour. If you did not request this, you can ignore this email.\n", resetURL),
+		Subject: "Reset your Wrkflw password",
+		HTML:    fmt.Sprintf(`<p>We received a request to reset your Wrkflw password.</p><p><a href="%s">Choose a new password</a></p><p>This link expires in one hour. If you did not request this, you can ignore this email.</p>`, html.EscapeString(resetURL)),
+		Text:    fmt.Sprintf("Reset your Wrkflw password:\n\n%s\n\nThis link expires in one hour. If you did not request this, you can ignore this email.\n", resetURL),
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *ResendSender) SendPasswordReset(ctx context.Context, email string, rese
 	}
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "slate.do/1.0")
+	req.Header.Set("User-Agent", "wrkflw/1.0")
 	req.Header.Set("Idempotency-Key", idempotencyKey)
 	response, err := s.client.Do(req)
 	if err != nil {

@@ -31,18 +31,18 @@ func TestResendSenderSendsExpectedRequestWithoutExposingAPIKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	sender := NewResendSender("re_secret", "Slate <passwords@slate.do>", server.Client())
+	sender := NewResendSender("re_secret", "Wrkflw <passwords@wrkflw>", server.Client())
 	sender.apiURL = server.URL
-	if err := sender.SendPasswordReset(context.Background(), "person@example.com", "https://slate.do/reset-password#token=reset_value", "password-reset-request-1"); err != nil {
+	if err := sender.SendPasswordReset(context.Background(), "person@example.com", "https://wrkflw/reset-password#token=reset_value", "password-reset-request-1"); err != nil {
 		t.Fatal(err)
 	}
-	if authorization != "Bearer re_secret" || userAgent != "slate.do/1.0" {
+	if authorization != "Bearer re_secret" || userAgent != "wrkflw/1.0" {
 		t.Fatalf("headers = authorization %q, user agent %q", authorization, userAgent)
 	}
 	if idempotencyKey != "password-reset-request-1" {
 		t.Fatalf("idempotency key = %q", idempotencyKey)
 	}
-	if payload.From != "Slate <passwords@slate.do>" || len(payload.To) != 1 || payload.To[0] != "person@example.com" || payload.Subject == "" {
+	if payload.From != "Wrkflw <passwords@wrkflw>" || len(payload.To) != 1 || payload.To[0] != "person@example.com" || payload.Subject == "" {
 		t.Fatalf("payload = %#v", payload)
 	}
 	if payload.HTML == "" || payload.Text == "" {
@@ -55,9 +55,9 @@ func TestResendSenderRejectsNonSuccessResponse(t *testing.T) {
 		http.Error(w, "contains provider details", http.StatusForbidden)
 	}))
 	defer server.Close()
-	sender := NewResendSender("re_secret", "Slate <passwords@slate.do>", server.Client())
+	sender := NewResendSender("re_secret", "Wrkflw <passwords@wrkflw>", server.Client())
 	sender.apiURL = server.URL
-	if err := sender.SendPasswordReset(context.Background(), "person@example.com", "https://slate.do/reset-password#token=reset_value", "password-reset-request-1"); err == nil || err.Error() != "send password reset: resend returned status 403" {
+	if err := sender.SendPasswordReset(context.Background(), "person@example.com", "https://wrkflw/reset-password#token=reset_value", "password-reset-request-1"); err == nil || err.Error() != "send password reset: resend returned status 403" {
 		t.Fatalf("error = %v", err)
 	}
 }

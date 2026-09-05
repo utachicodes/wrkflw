@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/entitlements"
-	"github.com/owainlewis/slate.do/server/internal/httpapi"
+	"github.com/utachicodes/wrkflw/server/internal/entitlements"
+	"github.com/utachicodes/wrkflw/server/internal/httpapi"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -37,8 +37,8 @@ func TestReadBearerToken(t *testing.T) {
 }
 
 func TestSameOriginRejectsDifferentHost(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "https://slate.test/api", nil)
-	req.Host = "slate.test"
+	req := httptest.NewRequest(http.MethodPost, "https://wrkflw.test/api", nil)
+	req.Host = "wrkflw.test"
 	req.Header.Set("Origin", "https://evil.test")
 	rec := httptest.NewRecorder()
 
@@ -51,9 +51,9 @@ func TestSameOriginRejectsDifferentHost(t *testing.T) {
 }
 
 func TestSameOriginRejectsHostPrefixAttack(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "https://slate.test/api", nil)
-	req.Host = "slate.test"
-	req.Header.Set("Origin", "https://slate.test.evil.example")
+	req := httptest.NewRequest(http.MethodPost, "https://wrkflw.test/api", nil)
+	req.Host = "wrkflw.test"
+	req.Header.Set("Origin", "https://wrkflw.test.evil.example")
 	rec := httptest.NewRecorder()
 
 	if validateSameOrigin(rec, req) {
@@ -288,12 +288,12 @@ func TestUpdateProfileValidatesAllFieldsBeforeWriting(t *testing.T) {
 func TestUpdateProfilePersistsThemeAndDisplayNameTogether(t *testing.T) {
 	store := &themeAuthStore{requestAuthStore: requestAuthStore{}}
 	service := NewService(store, false)
-	req := httptest.NewRequest(http.MethodPatch, "/api/v1/me", strings.NewReader(`{"theme":"dark","displayName":" Owain "}`))
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/me", strings.NewReader(`{"theme":"dark","displayName":" Abdoullah "}`))
 	rec := httptest.NewRecorder()
 
 	service.UpdateTheme(rec, req, User{ID: "owner"})
 
-	if rec.Code != http.StatusOK || store.profileCalls != 1 || store.theme != "dark" || store.displayName != "Owain" {
+	if rec.Code != http.StatusOK || store.profileCalls != 1 || store.theme != "dark" || store.displayName != "Abdoullah" {
 		t.Fatalf("status = %d, calls = %d, theme = %q, display name = %q", rec.Code, store.profileCalls, store.theme, store.displayName)
 	}
 }
@@ -497,9 +497,9 @@ func TestAgentLifecycleIsOwnerScoped(t *testing.T) {
 func TestRegisterCreatesInvitedProMemberAndSessionCookie(t *testing.T) {
 	store := &signupAuthStore{}
 	service := NewService(store, false, "correct horse battery staple")
-	req := httptest.NewRequest(http.MethodPost, "https://slate.test/api/v1/auth/register", strings.NewReader(`{"email":" NEW@Example.com ","password":"abcd1234","inviteCode":"correct horse battery staple"}`))
-	req.Host = "slate.test"
-	req.Header.Set("Origin", "https://slate.test")
+	req := httptest.NewRequest(http.MethodPost, "https://wrkflw.test/api/v1/auth/register", strings.NewReader(`{"email":" NEW@Example.com ","password":"abcd1234","inviteCode":"correct horse battery staple"}`))
+	req.Host = "wrkflw.test"
+	req.Header.Set("Origin", "https://wrkflw.test")
 	req.Header.Set("X-Forwarded-For", "203.0.113.9, 35.191.0.1")
 	rec := httptest.NewRecorder()
 
@@ -559,7 +559,7 @@ func TestStoredEmailByteLimitUsesStableBoundaryResponse(t *testing.T) {
 	}
 
 	resetStore := &passwordResetAuthStore{}
-	resetService := NewServiceWithOptions(resetStore, false, Options{AppBaseURL: "https://slate.do", PasswordResetSender: &recordingPasswordResetSender{}})
+	resetService := NewServiceWithOptions(resetStore, false, Options{AppBaseURL: "https://wrkflw", PasswordResetSender: &recordingPasswordResetSender{}})
 	resetBody, err := json.Marshal(map[string]string{"email": exactEmail + "d"})
 	if err != nil {
 		t.Fatal(err)
@@ -629,14 +629,14 @@ func TestRequestPasswordResetQueuesGenericRequestBeforeDelivery(t *testing.T) {
 	store := &passwordResetAuthStore{claim: PasswordResetRequest{ID: "request-id", Email: "person@example.com", Attempts: 1}}
 	sender := &recordingPasswordResetSender{}
 	service := NewServiceWithOptions(store, false, Options{
-		AppBaseURL:          "https://slate.do/",
+		AppBaseURL:          "https://wrkflw/",
 		PasswordResetSender: sender,
 	})
 	fixedNow := time.Date(2026, time.July, 21, 12, 0, 0, 0, time.UTC)
 	service.now = func() time.Time { return fixedNow }
-	req := httptest.NewRequest(http.MethodPost, "https://slate.do/api/v1/auth/password-reset/request", strings.NewReader(`{"email":" Person@Example.com "}`))
-	req.Host = "slate.do"
-	req.Header.Set("Origin", "https://slate.do")
+	req := httptest.NewRequest(http.MethodPost, "https://wrkflw/api/v1/auth/password-reset/request", strings.NewReader(`{"email":" Person@Example.com "}`))
+	req.Host = "wrkflw"
+	req.Header.Set("Origin", "https://wrkflw")
 	req.RemoteAddr = "203.0.113.10:1234"
 	rec := httptest.NewRecorder()
 
@@ -658,10 +658,10 @@ func TestRequestPasswordResetQueuesGenericRequestBeforeDelivery(t *testing.T) {
 	if store.email != "person@example.com" || store.tokenHash == "" || store.expiresAt != fixedNow.Add(time.Hour) {
 		t.Fatalf("stored reset = email %q, hash %q, expiry %s", store.email, store.tokenHash, store.expiresAt)
 	}
-	if sender.email != "person@example.com" || !strings.HasPrefix(sender.resetURL, "https://slate.do/reset-password#token=reset_") || sender.idempotencyKey != "password-reset-request-id-1" {
+	if sender.email != "person@example.com" || !strings.HasPrefix(sender.resetURL, "https://wrkflw/reset-password#token=reset_") || sender.idempotencyKey != "password-reset-request-id-1" {
 		t.Fatalf("sent reset = email %q, url %q", sender.email, sender.resetURL)
 	}
-	plainToken := strings.TrimPrefix(sender.resetURL, "https://slate.do/reset-password#token=")
+	plainToken := strings.TrimPrefix(sender.resetURL, "https://wrkflw/reset-password#token=")
 	if store.tokenHash != hashToken(plainToken) || strings.Contains(rec.Body.String(), plainToken) {
 		t.Fatal("reset token was not stored and returned safely")
 	}
@@ -679,7 +679,7 @@ func TestRequestPasswordResetDoesNotRevealQueueOrRateLimitState(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := &passwordResetAuthStore{queueErr: tt.queueErr, rateErr: tt.rateErr}
 			sender := &recordingPasswordResetSender{}
-			service := NewServiceWithOptions(store, false, Options{AppBaseURL: "https://slate.do", PasswordResetSender: sender})
+			service := NewServiceWithOptions(store, false, Options{AppBaseURL: "https://wrkflw", PasswordResetSender: sender})
 			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password-reset/request", strings.NewReader(`{"email":"person@example.com"}`))
 			rec := httptest.NewRecorder()
 			service.RequestPasswordReset(rec, req)
@@ -696,7 +696,7 @@ func TestPasswordResetWorkerSkipsUnknownAccountsAndRetriesDeliveryFailures(t *te
 		createErr: ErrInvalidAuth,
 	}
 	unknownSender := &recordingPasswordResetSender{}
-	unknownService := NewServiceWithOptions(unknownStore, false, Options{AppBaseURL: "https://slate.do", PasswordResetSender: unknownSender})
+	unknownService := NewServiceWithOptions(unknownStore, false, Options{AppBaseURL: "https://wrkflw", PasswordResetSender: unknownSender})
 	if processed, err := unknownService.processPasswordResetRequest(context.Background()); err != nil || !processed {
 		t.Fatalf("unknown processed = %v, error = %v", processed, err)
 	}
@@ -706,7 +706,7 @@ func TestPasswordResetWorkerSkipsUnknownAccountsAndRetriesDeliveryFailures(t *te
 
 	failureStore := &passwordResetAuthStore{claim: PasswordResetRequest{ID: "retry", Email: "person@example.com", Attempts: 2}}
 	failureSender := &recordingPasswordResetSender{err: errors.New("resend unavailable")}
-	failureService := NewServiceWithOptions(failureStore, false, Options{AppBaseURL: "https://slate.do", PasswordResetSender: failureSender})
+	failureService := NewServiceWithOptions(failureStore, false, Options{AppBaseURL: "https://wrkflw", PasswordResetSender: failureSender})
 	fixedNow := time.Date(2026, time.July, 21, 12, 0, 0, 0, time.UTC)
 	failureService.now = func() time.Time { return fixedNow }
 	if processed, err := failureService.processPasswordResetRequest(context.Background()); err != nil || !processed {

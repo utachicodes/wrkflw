@@ -93,7 +93,7 @@ func FromEnv() (Config, error) {
 		AdminEmail:    adminEmail,
 		AdminPassword: adminPassword,
 		InviteCode:    os.Getenv("INVITE_CODE"),
-		AppBaseURL:    env("APP_BASE_URL", "https://slate.do"),
+		AppBaseURL:    env("APP_BASE_URL", "https://wrkflw"),
 		ResendAPIKey:  strings.TrimSpace(os.Getenv("RESEND_API_KEY")),
 		ResendFrom:    strings.TrimSpace(os.Getenv("RESEND_FROM")),
 

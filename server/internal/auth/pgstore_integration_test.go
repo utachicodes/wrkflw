@@ -12,17 +12,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/entitlements"
-	"github.com/owainlewis/slate.do/server/internal/httpapi"
-	"github.com/owainlewis/slate.do/server/internal/migrations"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/entitlements"
+	"github.com/utachicodes/wrkflw/server/internal/httpapi"
+	"github.com/utachicodes/wrkflw/server/internal/migrations"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func TestInviteSignupIsAtomicRateLimitedAndDisableable(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -35,7 +35,7 @@ func TestInviteSignupIsAtomicRateLimitedAndDisableable(t *testing.T) {
 	}
 
 	store := NewPGStore(db)
-	email := fmt.Sprintf("invited-%d@slate.test", time.Now().UnixNano())
+	email := fmt.Sprintf("invited-%d@wrkflw.test", time.Now().UnixNano())
 	password := "a secure password"
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
 	if err != nil {
@@ -136,9 +136,9 @@ func TestInviteSignupIsAtomicRateLimitedAndDisableable(t *testing.T) {
 }
 
 func TestPasswordResetTokensAreSingleUseAndRevokeSessions(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -151,7 +151,7 @@ func TestPasswordResetTokensAreSingleUseAndRevokeSessions(t *testing.T) {
 	}
 
 	store := NewPGStore(db)
-	email := fmt.Sprintf("reset-%d@slate.test", time.Now().UnixNano())
+	email := fmt.Sprintf("reset-%d@wrkflw.test", time.Now().UnixNano())
 	user, err := store.CreateAdmin(ctx, email, "old-password-hash")
 	if err != nil {
 		t.Fatal(err)
@@ -233,9 +233,9 @@ func TestPasswordResetTokensAreSingleUseAndRevokeSessions(t *testing.T) {
 }
 
 func TestPasswordResetSerializesWithStaleLoginSessionCreation(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -248,7 +248,7 @@ func TestPasswordResetSerializesWithStaleLoginSessionCreation(t *testing.T) {
 	}
 
 	store := NewPGStore(db)
-	email := fmt.Sprintf("reset-race-%d@slate.test", time.Now().UnixNano())
+	email := fmt.Sprintf("reset-race-%d@wrkflw.test", time.Now().UnixNano())
 	currentHash := "password-hash-0"
 	user, err := store.CreateAdmin(ctx, email, currentHash)
 	if err != nil {
@@ -296,9 +296,9 @@ func TestPasswordResetSerializesWithStaleLoginSessionCreation(t *testing.T) {
 }
 
 func TestDisableSerializesWithSessionAPITokenAndAgentCreation(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -310,7 +310,7 @@ func TestDisableSerializesWithSessionAPITokenAndAgentCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := NewPGStore(db)
-	email := fmt.Sprintf("disable-race-%d@slate.test", time.Now().UnixNano())
+	email := fmt.Sprintf("disable-race-%d@wrkflw.test", time.Now().UnixNano())
 	user, err := store.CreateInvitedMember(ctx, email, "hash", fmt.Sprintf("initial-%d", time.Now().UnixNano()), time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatal(err)
@@ -387,9 +387,9 @@ func TestDisableSerializesWithSessionAPITokenAndAgentCreation(t *testing.T) {
 }
 
 func TestInviteSignupRollsBackEveryRecordWhenSessionInsertFails(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -401,9 +401,9 @@ func TestInviteSignupRollsBackEveryRecordWhenSessionInsertFails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	email := fmt.Sprintf("rollback-%d@slate.test", time.Now().UnixNano())
+	email := fmt.Sprintf("rollback-%d@wrkflw.test", time.Now().UnixNano())
 	store := NewPGStore(db)
-	admin, err := store.CreateAdmin(ctx, fmt.Sprintf("rollback-admin-%d@slate.test", time.Now().UnixNano()), "hash")
+	admin, err := store.CreateAdmin(ctx, fmt.Sprintf("rollback-admin-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,9 +424,9 @@ func TestInviteSignupRollsBackEveryRecordWhenSessionInsertFails(t *testing.T) {
 }
 
 func TestPGStoreResolvesProEntitlementForEveryAuthenticationPath(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -439,7 +439,7 @@ func TestPGStoreResolvesProEntitlementForEveryAuthenticationPath(t *testing.T) {
 	}
 
 	store := NewPGStore(db)
-	email := fmt.Sprintf("pro-auth-%d@slate.test", time.Now().UnixNano())
+	email := fmt.Sprintf("pro-auth-%d@wrkflw.test", time.Now().UnixNano())
 	admin, err := store.CreateAdmin(ctx, email, "hash")
 	if err != nil {
 		t.Fatal(err)
@@ -493,9 +493,9 @@ func TestPGStoreResolvesProEntitlementForEveryAuthenticationPath(t *testing.T) {
 }
 
 func TestPGStoreDefaultsMissingEntitlementToFreeAndMeasuresUsage(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -508,7 +508,7 @@ func TestPGStoreDefaultsMissingEntitlementToFreeAndMeasuresUsage(t *testing.T) {
 	}
 
 	store := NewPGStore(db)
-	email := fmt.Sprintf("free-auth-%d@slate.test", time.Now().UnixNano())
+	email := fmt.Sprintf("free-auth-%d@wrkflw.test", time.Now().UnixNano())
 	setupTx, err := db.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -634,9 +634,9 @@ func TestPGStoreDefaultsMissingEntitlementToFreeAndMeasuresUsage(t *testing.T) {
 }
 
 func TestAgentTokensAuthenticateAsAccountScopedRevocableIdentities(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -649,7 +649,7 @@ func TestAgentTokensAuthenticateAsAccountScopedRevocableIdentities(t *testing.T)
 	}
 
 	store := NewPGStore(db)
-	email := fmt.Sprintf("agent-owner-%d@slate.test", time.Now().UnixNano())
+	email := fmt.Sprintf("agent-owner-%d@wrkflw.test", time.Now().UnixNano())
 	owner, err := store.CreateAdmin(ctx, email, "hash")
 	if err != nil {
 		t.Fatal(err)
@@ -714,7 +714,7 @@ func TestAgentTokensAuthenticateAsAccountScopedRevocableIdentities(t *testing.T)
 			t.Fatal(err)
 		}
 	}
-	other, err := store.CreateAdmin(ctx, fmt.Sprintf("agent-count-other-%d@slate.test", time.Now().UnixNano()), "hash")
+	other, err := store.CreateAdmin(ctx, fmt.Sprintf("agent-count-other-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -806,9 +806,9 @@ func TestAgentTokensAuthenticateAsAccountScopedRevocableIdentities(t *testing.T)
 }
 
 func TestConcurrentAgentCreationCannotExceedProActiveAgentLimit(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run auth store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run auth store integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -821,7 +821,7 @@ func TestConcurrentAgentCreationCannotExceedProActiveAgentLimit(t *testing.T) {
 	}
 
 	store := NewPGStore(db)
-	owner, err := store.CreateAdmin(ctx, fmt.Sprintf("agent-race-%d@slate.test", time.Now().UnixNano()), "hash")
+	owner, err := store.CreateAdmin(ctx, fmt.Sprintf("agent-race-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
