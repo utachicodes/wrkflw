@@ -1,4 +1,4 @@
-# Slate architecture
+# wrkflw architecture
 
 > **Status:** Current implementation
 >
@@ -6,26 +6,26 @@
 
 ## 1. Executive summary
 
-Slate is a task manager for a person and their command-line agents. The current application is one Go service with an embedded React and TypeScript frontend, a JSON HTTP API, and a PostgreSQL database. Vite produces static browser assets before the Go binary is compiled. The same Go repository also builds the `slate` CLI. Production runs the service, database migration jobs, and a scheduled cleanup job in Google Cloud.
+wrkflw is a task manager for a person and their command-line agents. The current application is one Go service with an embedded React and TypeScript frontend, a JSON HTTP API, and a PostgreSQL database. Vite produces static browser assets before the Go binary is compiled. The same Go repository also builds the `wrkflw` CLI. Production runs the service, database migration jobs, and a scheduled cleanup job in Google Cloud.
 
 PostgreSQL is the source of truth. It stores accounts, sessions, access grants, boards, lists, tasks, agent identities and credentials, rate-limit state, idempotency records, and storage counters. Browser sessions, personal API tokens, and agent credentials all reach the same API, but they receive different authority.
 
 The main rule is: every read and mutation must remain scoped to the authenticated account, and agent credentials must remain further scoped to that agent's assigned work. Browser checks and hidden controls are never an authorization boundary.
 
-The approved task-first redesign in [issue #129](https://github.com/owainlewis/slate.do/issues/129) and [PR #130](https://github.com/owainlewis/slate.do/pull/130) is proposed work. It is not included in this current-state document.
+The approved task-first redesign in [issue #129](https://github.com/utachicodes/wrkflw/issues/129) and [PR #130](https://github.com/utachicodes/wrkflw/pull/130) is proposed work. It is not included in this current-state document.
 
-The agent control plane pivot in [issue #202](https://github.com/owainlewis/slate.do/issues/202) is also proposed work. Its target design lives in `docs/agentos-architecture.md` and its delivery plan in `docs/agentos-plan.md`. Neither is reflected here until it ships.
+The agent control plane pivot in [issue #202](https://github.com/utachicodes/wrkflw/issues/202) is also proposed work. Its target design lives in `docs/agentos-architecture.md` and its delivery plan in `docs/agentos-plan.md`. Neither is reflected here until it ships.
 
 ## 2. System context
 
 ```mermaid
 flowchart LR
-    Human["Human in a browser"] -->|HTTPS and session cookie| Web["Slate Cloud Run service"]
-    CLI["Human or agent using slate CLI"] -->|HTTPS and bearer token| Web
+    Human["Human in a browser"] -->|HTTPS and session cookie| Web["wrkflw Cloud Run service"]
+    CLI["Human or agent using wrkflw CLI"] -->|HTTPS and bearer token| Web
     Web -->|SQL transactions| DB["Cloud SQL for PostgreSQL"]
     Web -->|Password reset email| Resend["Resend"]
     Web -->|Embedded files| Human
-    Scheduler["Cloud Scheduler"] -->|Authenticated job run| Cleanup["Slate cleanup job"]
+    Scheduler["Cloud Scheduler"] -->|Authenticated job run| Cleanup["wrkflw cleanup job"]
     Cleanup -->|Bounded deletes| DB
     Build["GitHub Actions and Cloud Build"] -->|Migrate, deploy, verify| Web
     Build -->|Migration job| DB
@@ -33,7 +33,7 @@ flowchart LR
     Secrets -->|Database URL| Cleanup
 ```
 
-Inside the repository, `server/cmd/slate` builds the web service and operator commands. `cli/cmd/slate` builds the separate CLI. The browser frontend is embedded into the server binary by default. A `STATIC_DIR` override exists for local development.
+Inside the repository, `server/cmd/wrkflw` builds the web service and operator commands. `cli/cmd/wrkflw` builds the separate CLI. The browser frontend is embedded into the server binary by default. A `STATIC_DIR` override exists for local development.
 
 ## 3. Architectural invariants
 
@@ -60,10 +60,11 @@ Inside the repository, `server/cmd/slate` builds the web service and operator co
 | Rate limits (`server/internal/ratelimit`) | Shared request windows, credential reservations, counters, metrics | PostgreSQL and route classification | Authentication decisions |
 | Cleanup (`server/internal/cleanup`) | Bounded deletion of expired operational records | PostgreSQL and the retention policy | Customer-created task data or account deletion |
 | Database and migrations | Pool deadlines, connection slots, schema versioning, schema invariants | PostgreSQL | HTTP behavior or product presentation |
-| CLI (`cli/cmd/slate`) | Command parsing, JSON requests, JSON output | Public Slate API and a bearer token | Local durable state or direct database access |
+| CLI (`cli/cmd/wrkflw`) | Command parsing, JSON requests, JSON output | Public wrkflw API and a bearer token | Local durable state or direct database access |
+| Gateway (`frwrd`) | Always-on messaging front end: iMessage, Telegram, and Slack channels, recurring job scheduler, assistant repo on your machine | Public wrkflw API and a bearer token (when mirroring is enabled) | The board, tasks, agents, or the control plane itself |
 | Delivery (`.github`, `cloudbuild.yaml`, `scripts`) | CI, image build, deployment lock, migration and cleanup jobs, health checks | GitHub Actions and Google Cloud | Product behavior |
 
-Dependency direction is from delivery and interface code toward domain packages and PostgreSQL. The browser and CLI never connect to PostgreSQL. Domain packages do not import the browser or CLI.
+Dependency direction is from delivery and interface code toward domain packages and PostgreSQL. The browser, CLI, and gateway never connect to PostgreSQL. Domain packages do not import the browser, CLI, or gateway.
 
 ## 5. Critical flows
 
@@ -71,7 +72,7 @@ Dependency direction is from delivery and interface code toward domain packages 
 
 1. The browser submits email and password to `POST /api/v1/auth/login`.
 2. The auth service normalizes the email, compares the bcrypt password hash, and creates a random session token.
-3. PostgreSQL stores only the session-token hash and expiry. The browser receives the token in the `slate_session` cookie.
+3. PostgreSQL stores only the session-token hash and expiry. The browser receives the token in the `wrkflw_session` cookie.
 4. Later requests reserve rate-limit capacity for the credential before authentication. Successful authentication finalizes the credential and account limits together.
 5. A route guard selects session-only, account-read, account-manage, or agent-aware authority.
 6. The domain store repeats account and, where required, agent scoping in SQL.
@@ -89,7 +90,7 @@ Dependency direction is from delivery and interface code toward domain packages 
 
 ### Agent work
 
-1. An account owner creates an agent identity. Slate returns one `slate_agent_...` credential and stores only its SHA-256 hash and safe prefix.
+1. An account owner creates an agent identity. wrkflw returns one `wrkflw_agent_...` credential and stores only its SHA-256 hash and safe prefix.
 2. A human assigns tasks to the agent's immutable ID.
 3. The agent uses its token with the CLI or API to list assigned queued work.
 4. Claiming a task atomically changes `queued` to `working`. A competing claim observes the committed state and fails safely.
@@ -107,7 +108,7 @@ Password-reset requests are written to a PostgreSQL outbox before a generic resp
 1. GitHub Required CI runs PostgreSQL-backed Go tests, CLI tests, web unit tests, real Chromium tests, installer checks, Cloud Build checks, and release-artifact checks.
 2. Cloud Build verifies the exact GitHub commit, builds and pushes one image, and acquires a deployment lock in Cloud Storage.
 3. A one-off Cloud Run job applies migrations. Failure stops the release.
-4. Cloud Build deploys the `slate` service by immutable image digest, verifies runtime identity and capacity settings, checks `/api/health`, and runs a concurrent capacity probe.
+4. Cloud Build deploys the `wrkflw` service by immutable image digest, verifies runtime identity and capacity settings, checks `/api/health`, and runs a concurrent capacity probe.
 5. The same image updates the single-task cleanup job. Cloud Scheduler invokes it daily at 03:17 UTC.
 6. Cleanup deletes only expired operational records in bounded, retry-safe batches. It reports backlog and budget state as JSON and leaves customer-created records untouched.
 
@@ -167,7 +168,7 @@ The repository has no OpenAPI document. Handler types, route registration, CLI b
 
 ### CLI and browser
 
-The CLI supports authentication checks plus board, list, and task commands. It sends `SLATE_API_TOKEN` as a bearer token, defaults to `https://slate.do`, uses a 30-second client timeout, and prints successful results as JSON.
+The CLI supports authentication checks plus board, list, and task commands. It sends `WRKFLW_API_TOKEN` as a bearer token, defaults to `https://wrkflw`, uses a 30-second client timeout, and prints successful results as JSON.
 
 The browser application is React and TypeScript compiled by Vite into static assets served by the Go service. It uses the same JSON API and does not own durable application state. The embedded frontend and API are released in the same container image, so no separate frontend compatibility window exists.
 
@@ -232,7 +233,7 @@ Unverified in this document: live Google Cloud configuration, current Secret Man
 
 ## 11. Source map
 
-- [Server entry point](server/cmd/slate/main.go)
+- [Server entry point](server/cmd/wrkflw/main.go)
 - [HTTP routes and authorization composition](server/internal/server/app.go)
 - [Board, list, and task types](server/internal/boards/types.go)
 - [Board, list, task, quota, and workflow persistence](server/internal/boards/store.go)
@@ -244,7 +245,9 @@ Unverified in this document: live Google Cloud configuration, current Secret Man
 - [Shared rate limits](server/internal/ratelimit/ratelimit.go)
 - [Operational cleanup](server/internal/cleanup/cleanup.go)
 - [React browser application](web/src/App.tsx)
-- [CLI entry point](cli/cmd/slate/main.go)
+- [CLI entry point](cli/cmd/wrkflw/main.go)
+- [Messaging and scheduling gateway (`frwrd`)](frwrd/src/main.rs)
+- [Gateway control-plane mirror](frwrd/src/wrkflw.rs)
 - [Required CI](.github/workflows/ci.yml)
 - [Production pipeline](cloudbuild.yaml)
 - [Deployment and operations guide](docs/deploy.md)
