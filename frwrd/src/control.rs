@@ -53,7 +53,7 @@ struct PulledRoute {
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
-struct PulledConfig {
+pub(crate) struct PulledConfig {
     channel: String,
     agent: String,
     telegram: PulledTelegram,

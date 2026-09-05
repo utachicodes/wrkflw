@@ -44,6 +44,8 @@ Because runners live on your machines, you bring your own agent runtime (Claude 
 - [Current implementation](ARCHITECTURE.md)
 - [Install and use the wrkflw CLI](docs/cli.md)
 - [Run a coding agent on your wrkflw tasks](docs/watcher.md)
+- [Connect messaging in five minutes](docs/messaging-setup.md)
+- [Scan code and file fixes as tasks](docs/security-scan.md)
 
 `docs/prd.md` describes the card-first product that came before this and is kept for history only.
 
