@@ -10,7 +10,7 @@ server/internal/web/dist/*
 build/
 
 # Compiled binaries
-/cli/slate
-/cli/slate.exe
-/server/slate
+/cli/wrkflw
+/cli/wrkflw.exe
+/server/wrkflw
 *.exe
