@@ -1,18 +1,18 @@
-# Slate architecture: the agent control plane
+# wrkflw architecture: the agent control plane
 
 > Status: target design, for build. Supersedes `docs/prd.md` and the earlier AgentOS design sketch.
-> Current-state documentation lives in `ARCHITECTURE.md`. This document describes where Slate is going.
+> Current-state documentation lives in `ARCHITECTURE.md`. This document describes where wrkflw is going.
 > Delivery plan and task breakdown: `docs/agentos-plan.md`.
 
-## 1. What Slate is
+## 1. What wrkflw is
 
-Slate is a control plane for work done by people and coding agents. You put work on a board. Agents pick it up, do it on machines you own, and message you when they need you.
+wrkflw is a control plane for work done by people and coding agents. You put work on a board. Agents pick it up, do it on machines you own, and message you when they need you.
 
 One sentence carries the design:
 
 **The control plane holds all the state and none of the execution.**
 
-No workspace, no repo checkout, no model API keys, no shelling out. Those live on **runners**, which are `slate` CLI daemons on machines you control: your laptop, a VM, a container that exists for ninety seconds.
+No workspace, no repo checkout, no model API keys, no shelling out. Those live on **runners**, which are `wrkflw` CLI daemons on machines you control: your laptop, a VM, a container that exists for ninety seconds.
 
 Three things follow.
 
@@ -20,18 +20,19 @@ Three things follow.
 2. **No inference cost in the control plane.** You pay for your own tokens on your own subscription.
 3. **Sandboxing is a deployment choice, not a feature.** Want isolation? Run the runner in a container. The control plane does not know and does not care.
 
-### The product is two parts
+### The product is three parts
 
 | | |
 | --- | --- |
-| **Control plane** | The hosted SaaS at slate.do. You sign up, configure agents, see the board, assign work, answer questions, review output. |
-| **Runner** | The `slate` CLI, installed separately on your own machine. It polls the control plane, executes work, reports back. |
+| **Control plane** | The hosted SaaS at wrkflw. You sign up, configure agents, see the board, assign work, answer questions, review output. |
+| **Runner** | The `wrkflw` CLI, installed separately on your own machine. It polls the control plane, executes work, reports back. |
+| **Gateway** | The `frwrd` daemon, installed only where you want an always-on front end. It answers iMessage, Telegram, and Slack, runs recurring jobs, and mirrors the conversation into the same task inbox. |
 
-You never install anything to start. The control plane is a working task manager on its own.
+You never install anything to start. The control plane is a working task manager on its own. The gateway and the runner share one assistant repo and one inbox; the gateway is the same product's messaging front end, not a separate service.
 
 ### Constraint: useful with zero runners
 
-**Slate must be fully usable by a person who never installs the CLI.** No empty state demands a daemon. No core flow is gated behind execution. Agents are an upgrade to a task, not a precondition for the product.
+**wrkflw must be fully usable by a person who never installs the CLI.** No empty state demands a daemon. No core flow is gated behind execution. Agents are an upgrade to a task, not a precondition for the product.
 
 This is a hard design constraint, not an aspiration. It sets the free tier, removes the activation cliff, and keeps the board honest.
 
@@ -55,7 +56,7 @@ Four primitives.
 | --- | --- |
 | **Task** | A unit of work. Title, description, status, assignee, agent. |
 | **Agent** | Config. Instructions, a backend, a workspace. Stateless. *What* to do. |
-| **Runner** | A registered `slate` daemon on a machine. *Where* it can happen. |
+| **Runner** | A registered `wrkflw` runner daemon on a machine. *Where* it can happen. |
 | **Run** | One execution attempt: task x agent x runner. Holds the session, event log, and result. |
 
 Plus one channel:
@@ -101,7 +102,7 @@ There is no approval subsystem. `requires_approval` on a task means a successful
 
 A task is what you want. A run is one attempt at it. Splitting them is the most load-bearing decision here: retry, resume, backend swapping, park and resume, and per-agent metrics all fall out for free instead of each needing its own mechanism. Systems that conflate the two end up with a `retry_count` column and a lot of regret.
 
-Today Slate has neither: a run is client-side JSON in `cli/cmd/slate/registry.go` and the server holds a bare `execution_run_id`. Fixing this is the first structural change.
+Today wrkflw has neither: a run is client-side JSON in `cli/cmd/wrkflw/registry.go` and the server holds a bare `execution_run_id`. Fixing this is the first structural change.
 
 ## 4. Schedules and templates
 
@@ -134,7 +135,7 @@ A cron on a laptop does not fire when the laptop is asleep. The control plane is
 
 ```
 +------------------------------------------+
-|  Control plane          slate.do (SaaS)  |
+|  Control plane          wrkflw (SaaS)  |
 |                                          |
 |  tasks - runs - agents - messages        |
 |  attachments - envelope - UI - API       |
@@ -145,14 +146,14 @@ A cron on a laptop does not fire when the laptop is asleep. The control plane is
                 |  HTTPS, runner polls outward
                 |  no inbound ports, works behind NAT
 +---------------+--------------------------+
-|  Runner              slate runner start  |
+|  Runner              wrkflw runner start  |
 |                                          |
 |  adapters - git worktrees - secrets      |
 |  model credentials - the actual work     |
 +---------------+--------------------------+
                 | spawns, with a scoped run token in env
          +------+---------+
-         | claude / codex | --> calls back via the slate CLI
+         | claude / codex | --> calls back via the wrkflw CLI
          +----------------+
 ```
 
@@ -224,7 +225,7 @@ Agents are the reusable asset. They are text, they diff, and one person sets the
 
 A task description is never sent to an agent raw. The control plane wraps it. That wrapper is the **envelope**, in five layers:
 
-1. **Preamble.** What Slate is. The `slate` commands available. How to report progress, ask a question, attach output, finish, and signal blocked. Includes the exit-75 contract.
+1. **Preamble.** What wrkflw is. The `wrkflw` commands available. How to report progress, ask a question, attach output, finish, and signal blocked. Includes the exit-75 contract.
 2. **Agent instructions.** The agent's system prompt.
 3. **Context.** Task metadata, parent task, attachment paths, workspace path, and prior run summaries when this is a resume.
 4. **Task description.** What the person actually wrote.
@@ -234,43 +235,45 @@ A task description is never sent to an agent raw. The control plane wraps it. Th
 
 This also absorbs the boilerplate that otherwise rots inside user-written prompts. Instructions like "read the attachments on the parent task" and "remember to attach your output" belong in the preamble once, not copy-pasted into every task. **If the same sentence appears in three task descriptions, it belongs in the envelope.**
 
-Today prompt assembly happens client-side in `cli/cmd/slate/prompt.go`. It moves server-side.
+Today prompt assembly happens client-side in `cli/cmd/wrkflw/prompt.go`. It moves server-side.
 
 ## 9. The agent's interface is the CLI
 
 The runner injects three variables into the child process:
 
 ```
-SLATE_URL=https://slate.do
-SLATE_RUN_TOKEN=slate_run_...
-SLATE_TASK_ID=...
+WRKFLW_URL=https://wrkflw
+WRKFLW_RUN_TOKEN=wrkflw_run_...
+WRKFLW_TASK_ID=...
 ```
 
 The agent then has a surface scoped to one task:
 
 ```
-slate task show                     # its own task, attachments, parent
-slate task comment "..."            # progress note
-slate task done                     # success
-slate task block --reason "..."     # cannot continue
+wrkflw task show                     # its own task, attachments, parent
+wrkflw task comment "..."            # progress note
+wrkflw task done                     # success
+wrkflw task block --reason "..."     # cannot continue
 
-slate inbox send "..."              # fire and forget
-slate inbox ask "..." [--option a --option b] [--wait 10m]
+wrkflw inbox send "..."              # fire and forget
+wrkflw inbox ask "..." [--option a --option b] [--wait 10m]
 
-slate file put|list                 # attachments on its own task
+wrkflw file put|list                 # attachments on its own task
 ```
 
 `--json` everywhere, so agents parse rather than scrape.
 
 **No MCP inside the run.** Every runtime that can run a shell can use a CLI, and the wiring does not differ per backend. You can run the same commands by hand while debugging, which matters more than it sounds.
 
-A hosted MCP endpoint is a separate, later idea: a distribution channel that lets someone point an existing agent at the board with one line of config. It wraps the same API. It is not how a run talks to Slate.
+The **gateway** (`frwrd`) is the same surface with a different front door. It accepts a natural-language message from iMessage, Telegram, or Slack, treats it as a task in the same inbox, runs the same agents on your machine, and replies in the channel the message came from. Where the runner is a wall between the board and `claude`/`codex`, the gateway is a wall between chat and the board. The inbox is the seam: a message channel in, a message channel out, and both write to `card_entries`. The gateway is where the `inbox send`/`inbox ask` surface gets a phone version.
+
+A hosted MCP endpoint is a separate, later idea: a distribution channel that lets someone point an existing agent at the board with one line of config. It wraps the same API. It is not how a run talks to wrkflw.
 
 ## 10. Asking a question without burning six hours of tokens
 
 The hardest problem in the system. An agent asks at 2pm; you reply after the gym at 6pm. Holding a process and a context window open for four hours is unacceptable.
 
-`slate inbox ask` takes a wait budget:
+`wrkflw inbox ask` takes a wait budget:
 
 - **Reply lands inside `--wait`.** The command prints the answer and the agent carries on.
 - **Budget expires.** The command prints `parked` and exits **75**. The preamble tells the agent: exit 75 means stop cleanly and exit, you will be resumed.
@@ -301,7 +304,7 @@ POST   /api/v1/runs/{id}/result              terminal status, branch
 {
   "name": "hetzner-1",
   "backends": ["claude-code@2.1", "codex@0.4"],
-  "workspaces": ["app", "slate"],
+  "workspaces": ["app", "wrkflw"],
   "concurrency": 2,
   "os": "linux",
   "arch": "amd64"
@@ -332,7 +335,7 @@ No labels and no fallback policy. Fallback needs a timer, a re-dispatch path, an
 {
   "run_id": "...",
   "task_id": "...",
-  "run_token": "slate_run_...",
+  "run_token": "wrkflw_run_...",
   "envelope": "<the full assembled prompt>",
   "backend": "claude-code",
   "backend_args": { "model": "claude-opus-5", "permission_mode": "acceptEdits" },
@@ -352,22 +355,22 @@ The runner's config declares which env names it is willing to resolve, and a job
 
 The control plane never learns where a repository lives and never holds a credential to fetch one.
 
-A runner declares its workspaces in `~/.config/slate/runner.json`:
+A runner declares its workspaces in `~/.config/wrkflw/runner.json`:
 
 ```json
 {
-  "url": "https://slate.do",
+  "url": "https://wrkflw",
   "name": "laptop",
   "workspaces": {
-    "app":   "/Users/owain/code/app",
-    "slate": "/Users/owain/code/slate.do"
+    "app":   "/Users/abdoullah/code/app",
+    "wrkflw": "/Users/abdoullah/code/wrkflw"
   }
 }
 ```
 
 and advertises those names at registration. A task names a workspace; the runner resolves the name to a path.
 
-The token comes from `SLATE_RUNNER_TOKEN` and never appears in the file. `--workspace name=path` is shorthand for a single-project setup.
+The token comes from `WRKFLW_RUNNER_TOKEN` and never appears in the file. `--workspace name=path` is shorthand for a single-project setup.
 
 **The runner's working directory is irrelevant.** Paths are absolute and come from config, so the daemon starts from anywhere. This is a deliberate difference from today's watcher, which defaults to the current directory and must be started inside the repository it works on.
 
@@ -403,12 +406,12 @@ The adapter knows nothing about approval, scheduling, or definitions of done. Ad
 
 Per run: a fresh git worktree cut from the named workspace at its current HEAD, pinned at dispatch, in the runner's cache directory. Never the checkout itself. Kill by process group so nothing survives a cancel. Retain worktrees after a run so the diff is readable, with a cap. Refuse to start when the source checkout is dirty.
 
-This already exists and works in `cli/cmd/slate/watch.go`. It is ported, not rewritten.
+This already exists and works in `cli/cmd/wrkflw/watch.go`. It is ported, not rewritten.
 
 ### Ephemeral mode
 
 ```
-slate runner start --once --ephemeral
+wrkflw runner start --once --ephemeral
 ```
 
 Register, take exactly one job, deregister, exit. That is a Cloud Run job, a Fly machine, or a spot VM. A small flag on top of leases, and worthless without them.
@@ -427,8 +430,8 @@ Board columns group the statuses: Todo (`new`, `queued`), In Progress, Review, D
 | --- | --- | --- |
 | Queued task matches a runner | created, `leased` | `running` |
 | Runner spawns the process | `running` | `running` |
-| `slate task done` | `succeeded` | `needs_review`, or `done` when `requires_approval` is false |
-| `slate task block` | `failed` | `blocked` |
+| `wrkflw task done` | `succeeded` | `needs_review`, or `done` when `requires_approval` is false |
+| `wrkflw task block` | `failed` | `blocked` |
 | `inbox ask` exceeds its wait | `parked` | `blocked`, awaiting reply |
 | A person replies | new run, `resume_from_run_id` set | `running` |
 | Lease expires, machine died | `expired` | back to `queued`, `attempts` + 1 |
@@ -463,7 +466,7 @@ No separate artifact type. The only difference is which `run_id` produced it, an
 The runner downloads the task's attachments into the workspace before starting the agent:
 
 ```
-<workspace>/.slate/attachments/<name>
+<workspace>/.wrkflw/attachments/<name>
 ```
 
 The envelope lists them by path, so the agent reads them as ordinary files and never needs a command to fetch its own inputs.
@@ -473,10 +476,10 @@ Child tasks also see their parent's attachments. That is what makes a pipeline w
 ### Up: explicit, never automatic
 
 ```
-slate file put report.md
-slate file put spec.md --name spec
-slate file list
-slate file get spec.md -o ./spec.md
+wrkflw file put report.md
+wrkflw file put spec.md --name spec
+wrkflw file list
+wrkflw file get spec.md -o ./spec.md
 ```
 
 **Never sync the workspace up automatically.** A checkout contains `.git` and `node_modules`. The agent says what is worth keeping, which is also the more useful signal.
@@ -504,7 +507,7 @@ A runner status indicator is pinned in the sidebar footer. A green dot and "Runn
 
 ### Columns are not configurable
 
-The four columns map to the statuses that drive dispatch, so they are fixed. Assigning an agent promotes a task to `queued`, a runner claiming it moves it to `working`, and an agent posting an output moves it to `needs_review`, or straight to `done` when the task does not require approval. If a person could invent columns, Slate would need a per-board mapping saying which column means "an agent may start" and which means "hand this back", which is exactly the second config surface this design avoids.
+The four columns map to the statuses that drive dispatch, so they are fixed. Assigning an agent promotes a task to `queued`, a runner claiming it moves it to `working`, and an agent posting an output moves it to `needs_review`, or straight to `done` when the task does not require approval. If a person could invent columns, wrkflw would need a per-board mapping saying which column means "an agent may start" and which means "hand this back", which is exactly the second config surface this design avoids.
 
 Renaming the labels without letting people add columns is a setting that changes nothing, so that is not offered either.
 
@@ -544,7 +547,7 @@ There is no `max_turns`. A turn cap truncates work mid-flight and nobody can pic
 
 `max_wall_clock` exists and is unset by default. That leaves cancellation and visibility as the real safety net:
 
-- `slate runs cancel` kills the process group through the runner.
+- `wrkflw runs cancel` kills the process group through the runner.
 - Elapsed time is visible, so a six-hour run is obvious without anyone having predicted it.
 
 ### Outcomes, and the two metrics that matter
@@ -576,7 +579,7 @@ Every one is accommodated by this schema and none belongs in the first version.
 
 ### Self-host, later
 
-The repo eventually ships a stripped single-binary build for the course audience, behind `SLATE_MODE=selfhost`: entitlements unlimited, rate limits no-op, invite gating off, secrets from environment. **Make these optional, never delete them.** The hosted product needs every one.
+The repo eventually ships a stripped single-binary build for the course audience, behind `WRKFLW_MODE=selfhost`: entitlements unlimited, rate limits no-op, invite gating off, secrets from environment. **Make these optional, never delete them.** The hosted product needs every one.
 
 Postgres stays. `boards/store.go` alone is 2,638 lines of pgx, and retrofitting a second dialect buys a technical audience nothing they cannot get from a container.
 
