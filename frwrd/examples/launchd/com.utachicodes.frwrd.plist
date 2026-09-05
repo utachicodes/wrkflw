@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.utachicodes.frwrd</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/YOU/.local/bin/frwrd</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/YOU/.frwrd</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>FRWRD_HOME</key>
+    <string>/Users/YOU/.frwrd</string>
+    <key>PATH</key>
+    <string>/Users/YOU/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/Library/Logs/frwrd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/frwrd.err.log</string>
+</dict>
+</plist>

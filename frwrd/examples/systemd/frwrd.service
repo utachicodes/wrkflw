@@ -1,0 +1,17 @@
+[Unit]
+Description=frwrd personal assistant gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/frwrd
+WorkingDirectory=%h/.frwrd
+Restart=on-failure
+RestartSec=10
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=FRWRD_HOME=%h/.frwrd
+EnvironmentFile=-%h/.config/frwrd/env
+
+[Install]
+WantedBy=default.target
