@@ -1,6 +1,6 @@
 # wrkflw
 
-A control plane for work done by people and coding agents.
+One board where people and coding agents share the same work.
 
 You put work on a board. Agents pick it up, do it on machines you own, and message you when they need you. The control plane holds all the state and none of the execution.
 

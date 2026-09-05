@@ -2,7 +2,7 @@
   "name": "wrkflw",
   "version": "0.0.0",
   "private": true,
-  "description": "A card-first control plane for human and agent work.",
+  "description": "One board where people and coding agents share the same work.",
   "scripts": {
     "dev": "sh scripts/dev.sh",
     "dev:web": "vite --config web/vite.config.mts",

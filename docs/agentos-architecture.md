@@ -6,7 +6,7 @@
 
 ## 1. What wrkflw is
 
-wrkflw is a control plane for work done by people and coding agents. You put work on a board. Agents pick it up, do it on machines you own, and message you when they need you.
+wrkflw is one board where people and coding agents share the same work. You put work on a board. Agents pick it up, do it on machines you own, and message you when they need you.
 
 One sentence carries the design:
 
