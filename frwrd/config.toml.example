@@ -1,0 +1,41 @@
+# Telegram quick start.
+channel = "telegram"
+agent = "codex"
+assistant_root = "~/Code/assistant"
+
+# Pi is also supported. Install and authenticate it first, then use:
+# agent = "pi"
+
+[telegram]
+# Paste the token from BotFather here. Keep this file private.
+bot_token = "replace-with-the-token-from-BotFather"
+# Replace this once with your numeric Telegram user ID.
+allow_user_ids = [123456789]
+
+# Slack alternative. See docs/slack.md.
+# channel = "slack"
+# [slack]
+# app_token = "xapp-..." # Prefer SLACK_APP_TOKEN.
+# bot_token = "xoxb-..." # Prefer SLACK_BOT_TOKEN.
+# allow_user_ids = ["U012ABCDEF"]
+
+# Required when a job contains an enabled cron trigger.
+# [primary_delivery]
+# channel = "telegram"
+# target = "123456789"
+
+[voice]
+# Optional. Uncomment to enable voice transcription and spoken replies.
+# openai_api_key = "replace-with-your-openai-api-key"
+# Optional. Spoken replies default to the Cedar voice.
+# name = "cedar"
+
+# wrkflw control plane. Optional. When enabled with mirror = true, frwrd keeps
+# one wrkflw inbox task per conversation thread: the first inbound message
+# creates the task, later messages and every assistant reply become task
+# entries. Prefer the WRKFLW_API_TOKEN environment variable over an inline
+# token, and keep this file private.
+# [wrkflw]
+# base_url = "https://wrkflw"   # Prefer WRKFLW_BASE_URL.
+# token = "replace-with-your-wrkflw-api-token" # Prefer WRKFLW_API_TOKEN.
+# mirror = false

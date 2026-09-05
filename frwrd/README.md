@@ -1,0 +1,155 @@
+<div align="center">
+
+# frwrd
+
+### The wrkflw gateway. Turn your coding agent into a 24/7 personal assistant.
+
+Message Claude Code, Codex, or Pi from your phone. Schedule work for later.
+Keep the agent and its data on your own machine. Conversations mirror into
+your wrkflw inbox as tasks when the wrkflw control-plane integration is on.
+
+[![CI](https://github.com/utachicodes/frwrd/actions/workflows/ci.yml/badge.svg)](https://github.com/utachicodes/frwrd/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-read-12756f)](https://utachicodes.github.io/frwrd/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-111417)](LICENSE)
+
+[Get started](#get-started) · [Read the docs](https://utachicodes.github.io/frwrd/) · [View releases](https://github.com/utachicodes/frwrd/releases)
+
+</div>
+
+## Examples
+
+Email triage: https://github.com/utachicodes/frwrd/blob/main/examples/assistant/jobs/daily-inbox-triage.md
+
+## The mission
+
+Good coding agents should be useful beyond an open terminal.
+
+frwrd makes the agent you already trust available through iMessage, Telegram,
+or Slack. It can answer a message, continue a conversation, or run a Markdown
+job on a schedule. Give it clear context and a useful set of jobs, and it can
+act as your AI chief of staff. Your assistant files stay in a Git repository
+you own.
+
+frwrd is a small bridge, not a new agent. Your coding agent still controls the
+models, tools, permissions, and reasoning.
+
+## Part of wrkflw
+
+frwrd is the gateway part of wrkflw, the control plane for assistant-driven
+work. With the wrkflw mirror enabled (`[wrkflw] mirror = true`), frwrd keeps one
+wrkflw inbox task per conversation thread: the first inbound message creates
+the task, and later messages and every reply become task entries. Your chats
+land in the same inbox as everything else you run, and stay as organized as
+your board.
+
+## A simpler alternative
+
+[OpenClaw](https://github.com/openclaw/openclaw) and
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) are powerful
+assistant platforms with their own agent runtimes, tools, skills, memory, and
+messaging layers.
+
+frwrd does not replace your agent. One small Rust binary adds messaging and
+schedules to Claude Code, Codex, or Pi.
+
+## How it works
+
+```mermaid
+flowchart TD
+    Message["Message from you<br/>iMessage · Telegram · Slack"]
+    Jobs["Scheduled<br/>Markdown jobs"]
+    Repo["Assistant repository<br/>SOUL.md · context · jobs"]
+    frwrd["frwrd<br/>message gateway · scheduler · history"]
+    Agent["Your coding agent<br/>Claude Code · Codex · Pi"]
+    Reply["frwrd returns the result<br/>to your chat"]
+
+    Message --> frwrd
+    Jobs --> frwrd
+    frwrd -->|dispatch| Agent
+    Repo -. context .-> Agent
+    Agent --> Reply
+```
+
+## What it does
+
+- Runs on your Mac or Linux machine
+- Connects private iMessage, Telegram, and Slack chats
+- Uses your existing Claude Code, Codex, or Pi setup
+- Keeps conversations and job history between restarts
+- Runs one-off or scheduled Markdown jobs
+- Opens no inbound network port
+
+## Get started
+
+You need Apple Silicon macOS or x86_64 Linux, Git, and one supported coding
+agent installed and signed in. iMessage requires macOS.
+
+Install the latest release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/utachicodes/frwrd/main/install.sh | sh
+```
+
+The binary goes to `~/.local/bin`. If your shell cannot find `frwrd`, add that
+directory to `PATH` before continuing.
+
+Create a Git-backed home for your assistant:
+
+```sh
+frwrd init ~/Code/assistant
+```
+
+This creates a Git repository containing `SOUL.md`, shared instructions in
+`AGENTS.md`, a `CLAUDE.md` reference to those instructions, `context/`, `evals/`,
+`jobs/`, and a versioned frwrd capability skill for Claude Code, Codex, and Pi.
+It then records the repository path in `$FRWRD_HOME/config.toml`. `FRWRD_HOME`
+defaults to `~/.frwrd`.
+
+Edit `$FRWRD_HOME/config.toml` to connect a chat channel. A small Telegram setup
+looks like this:
+
+```toml
+channel = "telegram"
+agent = "codex"
+assistant_root = "~/Code/assistant"
+
+[telegram]
+bot_token = "token-from-BotFather"
+allow_user_ids = [123456789]
+```
+
+Check the setup and start frwrd:
+
+```sh
+frwrd doctor
+frwrd
+```
+
+For channel setup, assistant design, service installation, jobs, permissions,
+and every config option, follow the
+[developer docs](https://utachicodes.github.io/frwrd/).
+
+## Build from source
+
+Install the stable Rust toolchain, then run:
+
+```sh
+git clone https://github.com/utachicodes/frwrd.git
+cd frwrd
+cargo build --locked --release
+```
+
+The binary will be at `target/release/frwrd`. See the
+[contributing guide](CONTRIBUTING.md) for development checks and documentation
+setup.
+
+## Open source
+
+frwrd is early software. Please read the [security policy](SECURITY.md) before
+reporting a vulnerability. Bug reports, ideas, and pull requests are welcome.
+
+- [Contributing](CONTRIBUTING.md)
+- [Architecture](ARCHITECTURE.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Security policy](SECURITY.md)
+- [MIT license](LICENSE)
