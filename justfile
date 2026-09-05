@@ -4,22 +4,22 @@ default:
     @just --list
 
 migrate:
-    DATABASE_URL={{database_url}} go run ./server/cmd/slate migrate
+    DATABASE_URL={{database_url}} go run ./server/cmd/wrkflw migrate
 
 seed-admin:
-    DATABASE_URL={{database_url}} go run ./server/cmd/slate seed-admin
+    DATABASE_URL={{database_url}} go run ./server/cmd/wrkflw seed-admin
 
 # Compatibility alias. Prefer seed-admin.
 seed-owner: seed-admin
 
 serve:
-    DATABASE_URL={{database_url}} COOKIE_SECURE=false go run ./server/cmd/slate serve
+    DATABASE_URL={{database_url}} COOKIE_SECURE=false go run ./server/cmd/wrkflw serve
 
 test: test-unit
 
 test-unit:
     npm run build:web
-    cd server && SLATE_TEST_DATABASE_URL= go test ./...
+    cd server && WRKFLW_TEST_DATABASE_URL= go test ./...
     cd cli && go test ./...
     npm run test:web
     sh scripts/test-install.sh
@@ -36,5 +36,5 @@ test-ci:
 
 build:
     npm run build:web
-    cd server && go build ./cmd/slate
-    cd cli && go build ./cmd/slate
+    cd server && go build ./cmd/wrkflw
+    cd cli && go build ./cmd/wrkflw

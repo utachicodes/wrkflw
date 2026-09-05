@@ -2,12 +2,12 @@
 
 set -eu
 
-repository=${SLATE_GITHUB_REPOSITORY:-owainlewis/slate.do}
-install_dir=${SLATE_INSTALL_DIR:-"$HOME/.local/bin"}
-release=${SLATE_VERSION:-latest}
+repository=${WRKFLW_GITHUB_REPOSITORY:-utachicodes/wrkflw}
+install_dir=${WRKFLW_INSTALL_DIR:-"$HOME/.local/bin"}
+release=${WRKFLW_VERSION:-latest}
 
 fail() {
-  printf 'slate: %s\n' "$1" >&2
+  printf 'wrkflw: %s\n' "$1" >&2
   exit 1
 }
 
@@ -26,7 +26,7 @@ case "$(uname -m)" in
   *) fail "unsupported architecture: $(uname -m)" ;;
 esac
 
-archive="slate_${os}_${arch}.tar.gz"
+archive="wrkflw_${os}_${arch}.tar.gz"
 if [ "$release" = "latest" ]; then
   download_url="https://github.com/$repository/releases/latest/download"
 else
@@ -59,16 +59,16 @@ fi
 [ "$actual" = "$expected" ] || fail "checksum verification failed"
 
 tar -xzf "$tmp_dir/$archive" -C "$tmp_dir"
-[ -f "$tmp_dir/slate" ] || fail "release archive does not contain slate"
+[ -f "$tmp_dir/wrkflw" ] || fail "release archive does not contain wrkflw"
 
 mkdir -p "$install_dir"
-staged_binary="$install_dir/.slate.$$"
-install -m 0755 "$tmp_dir/slate" "$staged_binary"
-mv -f "$staged_binary" "$install_dir/slate"
+staged_binary="$install_dir/.wrkflw.$$"
+install -m 0755 "$tmp_dir/wrkflw" "$staged_binary"
+mv -f "$staged_binary" "$install_dir/wrkflw"
 staged_binary=
 
-printf 'Installed slate to %s/slate\n' "$install_dir"
+printf 'Installed wrkflw to %s/wrkflw\n' "$install_dir"
 case ":$PATH:" in
   *":$install_dir:"*) ;;
-  *) printf 'Add %s to your PATH to run slate.\n' "$install_dir" ;;
+  *) printf 'Add %s to your PATH to run wrkflw.\n' "$install_dir" ;;
 esac
