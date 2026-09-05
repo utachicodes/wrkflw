@@ -153,7 +153,9 @@ pub fn maybe_pull(cfg: &mut Config) {
             eprintln!("frwrd: applied channel config pulled from {base_url}");
         }
         Err(error) => {
-            eprintln!("warning: control-plane config pull failed ({error:#}); using local channel config");
+            eprintln!(
+                "warning: control-plane config pull failed ({error:#}); using local channel config"
+            );
         }
     }
 }
