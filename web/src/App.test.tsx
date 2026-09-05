@@ -56,11 +56,11 @@ test("login discards cached data from the previous account", async () => {
   expect(requests.some(request => request.startsWith("GET /api/v1/tasks?"))).toBe(true)
 })
 
-test("the landing page explains Slate as a shared task list", async () => {
+test("the landing page explains wrkflw as a shared task list", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ authenticated: false }), { status: 200 })))
   renderApp()
   expect(await screen.findByRole("heading", { name: /one shared task list for you and your agents/i })).toBeInTheDocument()
-  expect(screen.getByText(/slate keeps every task, brief, conversation and result in one place/i)).toBeInTheDocument()
+  expect(screen.getByText(/wrkflw keeps every task, brief, conversation and result in one place/i)).toBeInTheDocument()
   expect(screen.getByRole("heading", { name: "Save reusable templates" })).toBeInTheDocument()
   expect(screen.getAllByRole("link", { name: /log in/i })[0]).toHaveAttribute("href", "/login")
 })
@@ -75,7 +75,7 @@ test("the login form preserves protected destinations", async () => {
 
 test("the templates route starts new accounts without shared defaults", async () => {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
-    const path = new URL(String(input), "http://slate.test").pathname
+    const path = new URL(String(input), "http://wrkflw.test").pathname
     if (path === "/api/v1/me") return new Response(JSON.stringify({ authenticated: true, user: { id: "user-1", email: "customer@example.com", displayName: "Customer", theme: "light" } }), { status: 200 })
     if (path === "/api/v1/lists") return new Response(JSON.stringify({ lists: [{ id: "list-1", name: "Product", isInbox: false }] }), { status: 200 })
     if (path === "/api/v1/agents") return new Response(JSON.stringify({ agents: [] }), { status: 200 })
@@ -92,7 +92,7 @@ test.each([
   ["/login", "Welcome back."],
   ["/forgot-password", "Reset your password."],
   ["/reset-password", "Choose a new password."],
-  ["/early-access", "Join Slate."],
+  ["/early-access", "Join wrkflw."],
   ["/missing", "Not found."],
 ])("the public route %s always uses the light theme", async (path, heading) => {
   document.documentElement.classList.add("dark")

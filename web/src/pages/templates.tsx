@@ -234,8 +234,8 @@ export function TemplatesPage() {
   const { me, lists, assignees, refreshLists } = useApp()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const storageKey = `slate:process-templates:${me.id}`
-  const attemptStoragePrefix = `slate:process-attempt:${me.id}:`
+  const storageKey = `wrkflw:process-templates:${me.id}`
+  const attemptStoragePrefix = `wrkflw:process-attempt:${me.id}:`
   const [initialAttempt] = React.useState(() => loadCreationAttempts(attemptStoragePrefix)[0] || null)
   const activeStorageKey = React.useRef(storageKey)
   const activeAttemptStoragePrefix = React.useRef(attemptStoragePrefix)
@@ -469,7 +469,7 @@ export function TemplatesPage() {
   }
 
   const discardCreationAttempt = () => {
-    if (!creationAttempt || !window.confirm("Discard this saved process attempt? Any partial task will remain in Slate.")) return
+    if (!creationAttempt || !window.confirm("Discard this saved process attempt? Any partial task will remain in wrkflw.")) return
     try {
       localStorage.removeItem(`${attemptStoragePrefix}${creationAttempt.id}`)
     } catch {
@@ -511,7 +511,7 @@ export function TemplatesPage() {
           return <article className={`template-list-row surface-card ${template.id === selectedTemplate.id ? "is-selected" : ""}`} key={template.id}>
             <button type="button" className="template-list-select" ref={element => { if (element) templateSelectRefs.current.set(template.id, element); else templateSelectRefs.current.delete(template.id) }} onClick={() => setSelectedTemplateId(template.id)} aria-pressed={template.id === selectedTemplate.id}>
               <div className="template-icon"><Clapperboard aria-hidden="true" /></div>
-              <div><h2>{template.name}</h2><p>{template.summary || "A reusable process in Slate."}</p><div className="template-meta"><span>{orderedTemplateSteps(template).length} subtasks</span><span>{template.phases.length} phases</span><span>{template.taskPrefix || "Set a default task title"}</span></div></div>
+              <div><h2>{template.name}</h2><p>{template.summary || "A reusable process in wrkflw."}</p><div className="template-meta"><span>{orderedTemplateSteps(template).length} subtasks</span><span>{template.phases.length} phases</span><span>{template.taskPrefix || "Set a default task title"}</span></div></div>
             </button>
             <div className="template-list-actions"><Button variant="ghost" size="sm" onClick={() => openEditor(template)}><Pencil className="size-3.5" />Edit</Button><Button variant="ghost" size="sm" onClick={event => { deleteTriggerRef.current = event.currentTarget; setDeleteTarget(template) }}><Trash2 className="size-3.5" />Delete</Button><Button variant="secondary" size="sm" className="template-use-button" disabled={Boolean(creationError)} aria-describedby={creationError ? errorId : undefined} onClick={() => openTemplate(template)}><Play className="size-3.5" />Create From Template</Button></div>
             {creationError && <p className="template-create-blocked" id={errorId}>{creationError}</p>}
@@ -596,8 +596,8 @@ export function TemplatesPage() {
             {createFromTemplate.isPending && <div className="template-create-progress" role="status"><span style={{ width: `${Math.max(4, (creatingStep / activeSteps.length) * 100)}%` }} /><p>Creating subtask {creatingStep || 1} of {activeSteps.length}…</p></div>}
             {createFromTemplate.isError && <div className="status-message error" role="alert"><strong>{partialTask ? "The parent task was created, but the workflow is incomplete." : "Could not create this task."}</strong><span>{createFromTemplate.error.message}</span></div>}
             {attemptExpired ? <div className="status-message error" role="alert"><strong>This saved process attempt is too old to retry safely.</strong><span>Review its partial task if available, then discard the attempt before starting another process.</span></div> : creationAttempt && !createFromTemplate.isPending && !createFromTemplate.isError && <div className="status-message" role="status"><strong>A previous process attempt may be incomplete.</strong><span>Resume it to reuse the same task and subtask keys safely.</span></div>}
-            {attemptStorageError && <div className="status-message error" role="alert">Slate could not save a safe retry key in this browser. No task was created.</div>}
-            {attemptDiscardError && <div className="status-message error" role="alert">Slate could not discard this attempt from browser storage.</div>}
+            {attemptStorageError && <div className="status-message error" role="alert">wrkflw could not save a safe retry key in this browser. No task was created.</div>}
+            {attemptDiscardError && <div className="status-message error" role="alert">wrkflw could not discard this attempt from browser storage.</div>}
             {createLimitError && <div className="status-message error" role="alert">{createLimitError}</div>}
             <DialogFooter className="template-dialog-footer">
               {creationAttempt && !createFromTemplate.isPending ? <><Button type="button" variant="ghost" onClick={discardCreationAttempt}>Discard attempt</Button>{(partialTask || creationAttempt.parentTaskId) && <Button type="button" variant="ghost" onClick={() => { setDialogOpen(false); navigate(partialTask ? taskUrl(partialTask) : `/app/tasks/${encodeURIComponent(creationAttempt.parentTaskId)}`) }}>Open partial task</Button>}<Button type="button" variant="ghost" onClick={() => closeDialog(false)}>Keep for later</Button>{!attemptExpired && <Button type="button" onClick={startOrRetryCreation} disabled={Boolean(createLimitError)}>{createFromTemplate.isError ? "Retry creation" : "Resume creation"}</Button>}</> : <Button type="button" variant="ghost" onClick={() => closeDialog(false)} disabled={createFromTemplate.isPending}>{createFromTemplate.isPending ? `Creating ${creatingStep || 1}/${activeSteps.length}` : "Close"}</Button>}

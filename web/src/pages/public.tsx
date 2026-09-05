@@ -44,7 +44,7 @@ function LandingProductPreview() {
   return (
     <div className="landing-preview" aria-hidden="true">
       <aside className="landing-preview-sidebar">
-        <div className="landing-preview-brand"><i /><strong>slate<span>.do</span></strong></div>
+        <div className="landing-preview-brand"><i /><strong>wrkflw</strong></div>
         <div className="landing-preview-new"><b>＋</b><strong>New task</strong><kbd>C</kbd></div>
         <div className="landing-preview-nav">
           <span>▱ <b>Inbox</b><small>2</small></span>
@@ -62,7 +62,7 @@ function LandingProductPreview() {
           <span>▷ <b>Runs</b></span>
           <span>⌘ <b>Runners</b></span>
         </div>
-        <div className="landing-preview-user"><i>OL</i><strong>Owain Lewis</strong></div>
+        <div className="landing-preview-user"><i>OL</i><strong>Abdoullah Ndao</strong></div>
       </aside>
       <section className="landing-preview-main">
         <header>
@@ -116,14 +116,14 @@ export function LandingPage() {
           <div className="hero-copy">
             <p className="landing-kicker">Task management for people and AI agents</p>
             <h1>One shared task list <em>for you and your agents.</em></h1>
-            <p>Slate keeps every task, brief, conversation and result in one place. You decide what matters, agents move the work forward, and nothing gets lost between you.</p>
-            <div className="hero-actions"><Button asChild size="lg" className="landing-primary-cta"><Link to={signedIn ? "/app/tasks" : "/login"}>{signedIn ? "Open Slate" : "Log in to Slate"}<ArrowRight className="size-4" /></Link></Button><Button asChild size="lg" variant="ghost" className="landing-secondary-cta"><a href="mailto:owain@gradientwork.com?subject=Slate access">Request access</a></Button></div>
-            <div className="hero-proof" aria-label="Slate principles"><span>Shared tasks</span><span>Clear ownership</span><span>People + agents</span></div>
+            <p>wrkflw keeps every task, brief, conversation and result in one place. You decide what matters, agents move the work forward, and nothing gets lost between you.</p>
+            <div className="hero-actions"><Button asChild size="lg" className="landing-primary-cta"><Link to={signedIn ? "/app/tasks" : "/login"}>{signedIn ? "Open wrkflw" : "Log in to wrkflw"}<ArrowRight className="size-4" /></Link></Button><Button asChild size="lg" variant="ghost" className="landing-secondary-cta"><a href="mailto:abdoullahaljersi@gmail.com?subject=wrkflw access">Request access</a></Button></div>
+            <div className="hero-proof" aria-label="wrkflw principles"><span>Shared tasks</span><span>Clear ownership</span><span>People + agents</span></div>
           </div>
           <figure className="hero-product">
-            <div className="hero-product-bar" aria-hidden="true"><i /><i /><i /><span>slate.do / all tasks</span></div>
+            <div className="hero-product-bar" aria-hidden="true"><i /><i /><i /><span>wrkflw / all tasks</span></div>
             <LandingProductPreview />
-            <figcaption>Slate showing shared tasks, priorities and progress for people and agents.</figcaption>
+            <figcaption>wrkflw showing shared tasks, priorities and progress for people and agents.</figcaption>
           </figure>
         </section>
       </header>
@@ -134,7 +134,7 @@ export function LandingPage() {
           <div className="principles">
             <article className="principle"><span>01</span><h3>Organise the work</h3><p>Use lists and priorities to keep projects, commitments and next steps clear.</p></article>
             <article className="principle"><span>02</span><h3>Save reusable templates</h3><p>Capture a repeatable process as phases, ordered tasks and the instructions needed to do the work.</p></article>
-            <article className="principle"><span>03</span><h3>Run with people and agents</h3><p>Start a template and Slate creates the work. Each step has a clear owner, status and place for the result.</p></article>
+            <article className="principle"><span>03</span><h3>Run with people and agents</h3><p>Start a template and wrkflw creates the work. Each step has a clear owner, status and place for the result.</p></article>
           </div>
         </section>
       </main>
@@ -143,7 +143,7 @@ export function LandingPage() {
 }
 
 function AuthLayout({ children, quote = "Work is infinite. Attention is not." }: { children: React.ReactNode; quote?: string }) {
-  return <div className="auth-shell"><section className="auth-panel"><Brand />{children}</section><aside className="auth-art"><img src="/landing-slabs.jpg" alt="Slate slabs against a pale wall" /><div className="auth-art-copy"><p>{quote}</p></div></aside></div>
+  return <div className="auth-shell"><section className="auth-panel"><Brand />{children}</section><aside className="auth-art"><img src="/landing-slabs.jpg" alt="wrkflw slabs against a pale wall" /><div className="auth-art-copy"><p>{quote}</p></div></aside></div>
 }
 
 function safeNext(value: string | null) {
@@ -193,9 +193,9 @@ export function EarlyAccessPage() {
     onSuccess: () => { queryClient.clear(); navigate("/app/tasks", { replace: true }) },
   })
   const field = (name: keyof typeof form) => ({ value: form[name], onChange: (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm(value => ({ ...value, [name]: event.target.value })) })
-  return <AuthLayout quote="Build a plan you can trust. Then let agents help you run it."><div className="auth-form-wrap"><h1>Join Slate.</h1><p>Create your account with an invitation code.</p><form className="form-stack" id="early-access-form" onSubmit={event => { event.preventDefault(); register.mutate() }}><div><Label htmlFor="register-name">Display name</Label><Input id="register-name" {...field("displayName")} required /></div><div><Label htmlFor="register-email">Email</Label><Input id="register-email" type="email" {...field("email")} required /></div><div><Label htmlFor="register-password">Password</Label><Input id="register-password" type="password" minLength={8} maxLength={72} {...field("password")} required /></div><div><Label htmlFor="register-code">Invitation code</Label><Input id="register-code" type="password" {...field("inviteCode")} required /></div>{register.isError && <p className="status-message error" role="alert">{register.error.message}</p>}<Button type="submit" disabled={register.isPending}>{register.isPending ? "Creating account…" : "Create account"}</Button></form><div className="auth-links"><Link to="/login">Already have an account?</Link></div></div></AuthLayout>
+  return <AuthLayout quote="Build a plan you can trust. Then let agents help you run it."><div className="auth-form-wrap"><h1>Join wrkflw.</h1><p>Create your account with an invitation code.</p><form className="form-stack" id="early-access-form" onSubmit={event => { event.preventDefault(); register.mutate() }}><div><Label htmlFor="register-name">Display name</Label><Input id="register-name" {...field("displayName")} required /></div><div><Label htmlFor="register-email">Email</Label><Input id="register-email" type="email" {...field("email")} required /></div><div><Label htmlFor="register-password">Password</Label><Input id="register-password" type="password" minLength={8} maxLength={72} {...field("password")} required /></div><div><Label htmlFor="register-code">Invitation code</Label><Input id="register-code" type="password" {...field("inviteCode")} required /></div>{register.isError && <p className="status-message error" role="alert">{register.error.message}</p>}<Button type="submit" disabled={register.isPending}>{register.isPending ? "Creating account…" : "Create account"}</Button></form><div className="auth-links"><Link to="/login">Already have an account?</Link></div></div></AuthLayout>
 }
 
 export function NotFoundPage() {
-  return <AuthLayout quote="The useful path is usually the simplest one."><div className="auth-form-wrap"><h1>Not found.</h1><p>That page does not exist, or it is no longer available to you.</p><Button asChild><Link to="/">Go to Slate</Link></Button></div></AuthLayout>
+  return <AuthLayout quote="The useful path is usually the simplest one."><div className="auth-form-wrap"><h1>Not found.</h1><p>That page does not exist, or it is no longer available to you.</p><Button asChild><Link to="/">Go to wrkflw</Link></Button></div></AuthLayout>
 }

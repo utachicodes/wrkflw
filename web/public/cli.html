@@ -3,18 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Install the Slate CLI</title>
-  <meta name="description" content="Install the Slate CLI, connect Claude Code and Codex, and run a watcher that works your assigned tasks in isolated Git worktrees.">
+  <title>Install the wrkflw CLI</title>
+  <meta name="description" content="Install the wrkflw CLI, connect Claude Code and Codex, and run a watcher that works your assigned tasks in isolated Git worktrees.">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/cli.css">
 </head>
 <body class="docs-body">
   <section class="landing docs-page">
     <nav class="landing-nav">
-      <a class="brand docs-brand" href="/">slate<span>.do</span></a>
+      <a class="brand docs-brand" href="/">wrkflw</a>
       <div class="docs-nav-actions">
-        <a href="https://github.com/owainlewis/slate.do" rel="noreferrer">GitHub</a>
-        <a class="nav-action" href="/">Open Slate</a>
+        <a href="https://github.com/utachicodes/wrkflw" rel="noreferrer">GitHub</a>
+        <a class="nav-action" href="/">Open wrkflw</a>
       </div>
     </nav>
 
@@ -32,38 +32,38 @@
 
       <article class="docs-article">
         <header class="docs-hero">
-          <p class="docs-eyebrow">Slate CLI</p>
+          <p class="docs-eyebrow">wrkflw CLI</p>
           <h1>Your plan, available to every agent.</h1>
-          <p>Install Slate from the terminal, connect your account, and let Claude Code, Codex, or any shell-based agent pull and update work.</p>
+          <p>Install wrkflw from the terminal, connect your account, and let Claude Code, Codex, or any shell-based agent pull and update work.</p>
         </header>
 
         <section id="install" class="docs-section">
           <h2>Install in one line</h2>
-          <p>The installer supports macOS and Linux on Intel and ARM. It downloads the matching release, verifies its SHA-256 checksum, and installs <code>slate</code> to <code>~/.local/bin</code>.</p>
-          <pre><code>curl -fsSL https://raw.githubusercontent.com/owainlewis/slate.do/main/install.sh | sh</code></pre>
-          <p>If needed, add the install directory to your path, then verify Slate:</p>
+          <p>The installer supports macOS and Linux on Intel and ARM. It downloads the matching release, verifies its SHA-256 checksum, and installs <code>wrkflw</code> to <code>~/.local/bin</code>.</p>
+          <pre><code>curl -fsSL https://raw.githubusercontent.com/utachicodes/wrkflw/main/install.sh | sh</code></pre>
+          <p>If needed, add the install directory to your path, then verify wrkflw:</p>
           <pre><code>export PATH="$HOME/.local/bin:$PATH"
-slate version
-slate help</code></pre>
+wrkflw version
+wrkflw help</code></pre>
           <div class="docs-note">
             <strong>Prefer to inspect the script?</strong>
-            <p>Open <a href="https://github.com/owainlewis/slate.do/blob/main/install.sh">install.sh on GitHub</a> before running it. The installer requires <code>curl</code>, <code>tar</code>, and either <code>sha256sum</code> or <code>shasum</code>.</p>
+            <p>Open <a href="https://github.com/utachicodes/wrkflw/blob/main/install.sh">install.sh on GitHub</a> before running it. The installer requires <code>curl</code>, <code>tar</code>, and either <code>sha256sum</code> or <code>shasum</code>.</p>
           </div>
 
           <h3>Pin a release</h3>
-          <pre><code>curl -fsSL https://raw.githubusercontent.com/owainlewis/slate.do/v2.0.0/install.sh | SLATE_VERSION=v2.0.0 sh</code></pre>
-          <p>Set <code>SLATE_INSTALL_DIR</code> to install elsewhere. Windows users can use the Linux installer inside WSL.</p>
+          <pre><code>curl -fsSL https://raw.githubusercontent.com/utachicodes/wrkflw/v2.0.0/install.sh | WRKFLW_VERSION=v2.0.0 sh</code></pre>
+          <p>Set <code>WRKFLW_INSTALL_DIR</code> to install elsewhere. Windows users can use the Linux installer inside WSL.</p>
         </section>
 
         <section id="authenticate" class="docs-section">
           <h2>Connect your account</h2>
           <ol>
-            <li>Sign in to Slate and open <strong>Settings</strong>.</li>
+            <li>Sign in to wrkflw and open <strong>Settings</strong>.</li>
             <li>Under <strong>API tokens</strong>, create a token and copy it.</li>
-            <li>Export it in the terminal where you will run Slate or start your agent.</li>
+            <li>Export it in the terminal where you will run wrkflw or start your agent.</li>
           </ol>
-          <pre><code>export SLATE_API_TOKEN=slate_...
-slate auth status</code></pre>
+          <pre><code>export WRKFLW_API_TOKEN=wrkflw_...
+wrkflw auth status</code></pre>
           <div class="docs-note">
             <strong>Keep the token private.</strong>
             <p>Do not put it in <code>CLAUDE.md</code>, <code>AGENTS.md</code>, source code, or a committed <code>.env</code> file.</p>
@@ -72,90 +72,90 @@ slate auth status</code></pre>
 
         <section id="commands" class="docs-section">
           <h2>Find and manage work</h2>
-          <p>Slate's data and workflow commands return JSON, including the IDs needed by later commands.</p>
-          <pre><code>slate tasks create --title "Captured thought"
-slate tasks pull --limit 5
-slate tasks get &lt;task-id&gt;</code></pre>
+          <p>wrkflw's data and workflow commands return JSON, including the IDs needed by later commands.</p>
+          <pre><code>wrkflw tasks create --title "Captured thought"
+wrkflw tasks pull --limit 5
+wrkflw tasks get &lt;task-id&gt;</code></pre>
           <p>A task without a list enters Inbox. Use a list when its bucket is already clear:</p>
-          <pre><code>slate tasks create \
+          <pre><code>wrkflw tasks create \
   --list &lt;list-id&gt; \
   --title "Draft launch note" \
   --description "Write the first version" \
   --date 2026-07-21
 
-slate tasks create \
+wrkflw tasks create \
   --parent &lt;task-id&gt; \
   --title "Human review"</code></pre>
-          <p>Run <code>slate help boards</code>, <code>slate help lists</code>, or <code>slate help tasks</code> for every command and flag.</p>
+          <p>Run <code>wrkflw help boards</code>, <code>wrkflw help lists</code>, or <code>wrkflw help tasks</code> for every command and flag.</p>
         </section>
 
         <section id="agents" class="docs-section">
-          <h2>Use Slate with Claude Code and Codex</h2>
+          <h2>Use wrkflw with Claude Code and Codex</h2>
           <p>Start the agent from the shell where the token is available. Use <code>codex</code> in place of <code>claude</code> for Codex.</p>
-          <pre><code>export SLATE_API_TOKEN=slate_...
+          <pre><code>export WRKFLW_API_TOKEN=wrkflw_...
 claude</code></pre>
           <p>Add this workflow to <code>CLAUDE.md</code> or <code>AGENTS.md</code>. Keep the token in the environment, not in the file.</p>
-          <pre><code>## Slate workflow
+          <pre><code>## wrkflw workflow
 
-- Run `slate tasks pull` to find queued work.
-- Claim a task with `slate tasks claim &lt;task-id&gt;` before starting.
+- Run `wrkflw tasks pull` to find queued work.
+- Claim a task with `wrkflw tasks claim &lt;task-id&gt;` before starting.
 - Only continue when the claim succeeds.
-- Read full context with `slate tasks get &lt;task-id&gt;`.
+- Read full context with `wrkflw tasks get &lt;task-id&gt;`.
 - When work is ready for review, run
-  `slate tasks status &lt;task-id&gt; needs_review`.
-- After acceptance, run `slate tasks status &lt;task-id&gt; done`.
+  `wrkflw tasks status &lt;task-id&gt; needs_review`.
+- After acceptance, run `wrkflw tasks status &lt;task-id&gt; done`.
 - Treat output as JSON and preserve IDs exactly.</code></pre>
-          <p>Claims are atomic. If another agent already claimed the task, Slate rejects the second claim so the agent can select different work.</p>
+          <p>Claims are atomic. If another agent already claimed the task, wrkflw rejects the second claim so the agent can select different work.</p>
           <p>Poll no faster than once every five seconds, slow down while idle, and add jitter when several agents start together. After a 429 response, wait for the <code>Retry-After</code> interval before trying again.</p>
         </section>
 
         <section id="report" class="docs-section">
           <h2>Report through the card</h2>
           <p>Outside a watcher, <code>comment</code> records progress and leaves the card where it is. Under a watcher, a run-tagged comment observed while the task is still In Progress is a terminal blocked report: the executor stops and the watcher retains the worktree. Executors should therefore use managed comments only to report blockage and then exit. If an output reaches Review before the watcher observes the comment, the output result takes precedence. <code>output</code> records the completion report and moves the card to Review in the same operation.</p>
-          <pre><code>slate tasks entries &lt;task-id&gt;
-slate tasks comment &lt;task-id&gt; --file "${TMPDIR:-/tmp}/note.md" --idempotency-key blocked-1
-slate tasks output &lt;task-id&gt; --file "${TMPDIR:-/tmp}/report.md" --idempotency-key output-1</code></pre>
+          <pre><code>wrkflw tasks entries &lt;task-id&gt;
+wrkflw tasks comment &lt;task-id&gt; --file "${TMPDIR:-/tmp}/note.md" --idempotency-key blocked-1
+wrkflw tasks output &lt;task-id&gt; --file "${TMPDIR:-/tmp}/report.md" --idempotency-key output-1</code></pre>
           <p>Give exactly one of <code>--body</code> or <code>--file</code>; <code>--file -</code> reads standard input. Every output and every watcher-managed comment needs <code>--idempotency-key</code>; a manual comment outside a managed run may omit it. Reuse the same value to retry after an uncertain result and no duplicate is created. Write the file outside the repository so it does not sit in your working tree as an uncommitted change.</p>
-          <p>Under a watcher, an agent cannot set the status itself. While a run owns a task, Slate refuses direct status changes with <code>managed_run_status_locked</code>; claim reaches In Progress and output reaches Review.</p>
+          <p>Under a watcher, an agent cannot set the status itself. While a run owns a task, wrkflw refuses direct status changes with <code>managed_run_status_locked</code>; claim reaches In Progress and output reaches Review.</p>
         </section>
 
         <section id="watch" class="docs-section">
           <h2>Let a watcher run the agent for you</h2>
-          <p>Everything above assumes you start the agent yourself. <code>slate watch</code> does it for you: it takes tasks assigned to one agent, runs your coding agent on each in an isolated copy of the repository, and moves finished work to Review.</p>
-          <pre><code>slate watch --profile codex
-slate runs list
-slate runs clean &lt;run-id&gt;</code></pre>
+          <p>Everything above assumes you start the agent yourself. <code>wrkflw watch</code> does it for you: it takes tasks assigned to one agent, runs your coding agent on each in an isolated copy of the repository, and moves finished work to Review.</p>
+          <pre><code>wrkflw watch --profile codex
+wrkflw runs list
+wrkflw runs clean &lt;run-id&gt;</code></pre>
           <p>Each run gets its own Git worktree, so your checkout is never used as an agent's working directory. The watcher pins the source commit when it starts; restart it after updating the source branch. Successful, blocked and interrupted runs keep their worktree for you to review, up to ten per profile.</p>
-          <p>See <a href="https://github.com/owainlewis/slate.do/blob/main/docs/watcher.md">Run a coding agent on your Slate tasks</a> for profiles, recovery, and the release order.</p>
+          <p>See <a href="https://github.com/utachicodes/wrkflw/blob/main/docs/watcher.md">Run a coding agent on your wrkflw tasks</a> for profiles, recovery, and the release order.</p>
         </section>
 
         <section id="upgrade" class="docs-section">
           <h2>Upgrade or uninstall</h2>
           <p>Run the one-line installer again to upgrade. It only replaces the existing binary after checksum verification succeeds.</p>
           <p>Remove a default installation with:</p>
-          <pre><code>rm "$HOME/.local/bin/slate"</code></pre>
+          <pre><code>rm "$HOME/.local/bin/wrkflw"</code></pre>
         </section>
 
         <section id="troubleshooting" class="docs-section">
           <h2>Troubleshooting</h2>
           <dl class="docs-troubleshooting">
-            <dt><code>slate: command not found</code></dt>
+            <dt><code>wrkflw: command not found</code></dt>
             <dd>Add <code>~/.local/bin</code> to <code>PATH</code>, then open a new terminal.</dd>
-            <dt><code>SLATE_API_TOKEN is required</code></dt>
-            <dd>Create a token in Slate Settings and export it before starting the agent.</dd>
+            <dt><code>WRKFLW_API_TOKEN is required</code></dt>
+            <dd>Create a token in wrkflw Settings and export it before starting the agent.</dd>
             <dt><code>unauthorized</code></dt>
-            <dd>The token is missing, invalid, or revoked. Create a new one and run <code>slate auth status</code>.</dd>
+            <dd>The token is missing, invalid, or revoked. Create a new one and run <code>wrkflw auth status</code>.</dd>
           </dl>
-          <p>See the <a href="https://github.com/owainlewis/slate.do/releases/tag/v2.0.0">v2.0.0 release</a> for archives and checksums, or browse the <a href="https://github.com/owainlewis/slate.do/releases/latest">latest release</a>.</p>
+          <p>See the <a href="https://github.com/utachicodes/wrkflw/releases/tag/v2.0.0">v2.0.0 release</a> for archives and checksums, or browse the <a href="https://github.com/utachicodes/wrkflw/releases/latest">latest release</a>.</p>
         </section>
       </article>
     </main>
 
     <footer class="landing-footer">
-      <span>slate.do</span>
+      <span>wrkflw</span>
       <div class="docs-footer-links">
         <a href="/">Home</a>
-        <a href="https://github.com/owainlewis/slate.do/blob/main/docs/cli.md">Read on GitHub</a>
+        <a href="https://github.com/utachicodes/wrkflw/blob/main/docs/cli.md">Read on GitHub</a>
       </div>
     </footer>
   </section>

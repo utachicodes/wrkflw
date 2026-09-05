@@ -53,7 +53,7 @@ export function Authenticated({ children }: { children: React.ReactNode }) {
     document.documentElement.classList.toggle("dark", theme !== "light")
   }, [session.data?.user?.theme])
 
-  if (session.isPending) return <div className="loading-page"><div className="spinner" aria-label="Loading Slate" /></div>
+  if (session.isPending) return <div className="loading-page"><div className="spinner" aria-label="Loading wrkflw" /></div>
   if (!authenticated) {
     const next = `${location.pathname}${location.search}`
     return <Navigate to={`/login${next === "/app" ? "" : `?next=${encodeURIComponent(next)}`}`} replace />

@@ -15,7 +15,7 @@ import { agentIDForAssignee, assigneeForTask, type AssigneeKey } from "@/lib/ass
 import { taskListName, workspaceSummaryQueryKey, type List, type Task, type TaskStatus } from "@/lib/types"
 
 export function Brand({ onClick }: { onClick?: () => void }) {
-  return <button type="button" className="brand-mark" onClick={onClick} aria-label="Slate home"><span className="brand-word">slate<span className="brand-suffix">.do</span></span></button>
+  return <button type="button" className="brand-mark" onClick={onClick} aria-label="wrkflw home"><span className="brand-word">wrkflw</span></button>
 }
 
 function NavigationLink({ to, icon: Icon, children, count, id }: { to: string; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode; count?: number; id?: string }) {
@@ -166,8 +166,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [createTask, inbox?.id, location.pathname])
   React.useEffect(() => {
     const open = (event: Event) => openTaskDialog((event as CustomEvent<{ status?: TaskStatus }>).detail?.status || "new")
-    window.addEventListener("slate:new-task", open)
-    return () => window.removeEventListener("slate:new-task", open)
+    window.addEventListener("wrkflw:new-task", open)
+    return () => window.removeEventListener("wrkflw:new-task", open)
   }, [openTaskDialog])
   React.useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {

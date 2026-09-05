@@ -12,24 +12,24 @@ test.each([
 
 test("builds one human and named agent options with unique handles", () => {
   const options = buildAssignees(
-    { id: "owner", email: "owain@example.com", displayName: "Owain Lewis" },
+    { id: "owner", email: "abdoullahaljersi@gmail.com", displayName: "Abdoullah Ndao" },
     [
       { id: "codex", displayName: "Codex" },
-      { id: "owain-agent", displayName: "Owain" },
+      { id: "abdoullah-agent", displayName: "Abdoullah" },
     ],
   )
 
   expect(options.map(option => [option.key, option.handle])).toEqual([
-    ["human", "owain"],
+    ["human", "abdoullah"],
     ["agent:codex", "codex"],
-    ["agent:owain-agent", "owain_2"],
+    ["agent:abdoullah-agent", "abdoullah_2"],
   ])
   expect(assigneeForTask({ assigneeAgentId: "codex" }, options).handle).toBe("codex")
-  expect(assigneeForTask({ assigneeAgentId: "" }, options).handle).toBe("owain")
+  expect(assigneeForTask({ assigneeAgentId: "" }, options).handle).toBe("abdoullah")
   expect(agentIDForAssignee("human")).toBe("")
   expect(agentIDForAssignee("agent:codex")).toBe("codex")
-  expect(availableAgentHandle("Owain", options)).toBe("owain_3")
-  expect(availableAgentHandle("Owain", options, "agent:owain-agent")).toBe("owain_2")
+  expect(availableAgentHandle("Abdoullah", options)).toBe("abdoullah_3")
+  expect(availableAgentHandle("Abdoullah", options, "agent:abdoullah-agent")).toBe("abdoullah_2")
   expect(resolvedAssigneeKey("agent:missing", options)).toBeUndefined()
   expect(assigneeForTask({ assigneeAgentId: "missing" }, options)).toMatchObject({ kind: "agent", handle: "unavailable_agent" })
 })
