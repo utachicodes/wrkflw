@@ -26,7 +26,10 @@ pub fn preflight(cfg: &config::Config) -> Result<()> {
 }
 
 pub fn doctor(config_path: &str) -> Result<()> {
-    let cfg = match config::Config::load(config_path) {
+    let cfg = match config::Config::load(config_path).map(|mut cfg| {
+        crate::control::maybe_pull(&mut cfg);
+        cfg
+    }) {
         Ok(cfg) => cfg,
         Err(e) => {
             let message = crate::missing_config_message(config_path).unwrap_or_else(|| {
@@ -92,6 +95,22 @@ fn run_checks(cfg: &config::Config) -> CheckReport {
 }
 
 fn check_wrkflw(cfg: &config::Config, checks: &mut Vec<Check>) {
+    if cfg.wrkflw_pull_config {
+        if cfg.wrkflw_token().is_none() {
+            checks.push(Check::fail(
+                "wrkflw control plane",
+                "pull_config is set but no token is configured; set [wrkflw] token or WRKFLW_API_TOKEN".to_string(),
+            ));
+        } else {
+            checks.push(Check::pass(
+                "wrkflw control plane",
+                format!(
+                    "channel config pulls from {}; local channel settings are a fallback only",
+                    cfg.wrkflw_base_url()
+                ),
+            ));
+        }
+    }
     if !cfg.wrkflw_mirror_enabled() && cfg.wrkflw_token().is_none() {
         return;
     }

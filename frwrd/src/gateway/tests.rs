@@ -4001,6 +4001,7 @@ fn test_config(state_path: &str, _sessions_dir: &str, assistant_dir: &str) -> Co
         wrkflw_base_url: crate::config::DEFAULT_WRKFLW_BASE_URL.to_string(),
         wrkflw_token: None,
         wrkflw_mirror: false,
+        wrkflw_pull_config: false,
     }
 }
 

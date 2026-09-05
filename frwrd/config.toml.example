@@ -35,7 +35,12 @@ allow_user_ids = [123456789]
 # creates the task, later messages and every assistant reply become task
 # entries. Prefer the WRKFLW_API_TOKEN environment variable over an inline
 # token, and keep this file private.
+#
+# Set pull_config = true to manage channels, allowlists, and routes in the
+# wrkflw app (Settings → Messaging) instead of this file. The daemon pulls
+# them on startup; the values here remain as a fallback when the pull fails.
 # [wrkflw]
 # base_url = "https://wrkflw"   # Prefer WRKFLW_BASE_URL.
 # token = "replace-with-your-wrkflw-api-token" # Prefer WRKFLW_API_TOKEN.
 # mirror = false
+# pull_config = false

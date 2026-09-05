@@ -334,12 +334,13 @@ fn load_config(path: &str) -> Result<config::Config, CliError> {
             anyhow!("configuration not found at {path}"),
         ));
     }
-    let cfg = config::Config::load(path).map_err(|error| {
+    let mut cfg = config::Config::load(path).map_err(|error| {
         CliError::configuration(
             format!("configuration at {path} could not be loaded; run `frwrd doctor` for details"),
             error,
         )
     })?;
+    crate::control::maybe_pull(&mut cfg);
     jobs::Ledger::capture_legacy_schedule_baseline(&cfg).map_err(|error| {
         CliError::configuration(
             "the existing schedule migration baseline could not be captured",

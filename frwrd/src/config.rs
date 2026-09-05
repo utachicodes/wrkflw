@@ -87,6 +87,11 @@ pub struct Config {
     /// token is configured.
     #[serde(default)]
     pub wrkflw_mirror: bool,
+    /// Whether to pull channel configuration from the wrkflw control plane
+    /// on startup. The app becomes the single control surface; the local
+    /// file keeps only what the server cannot know.
+    #[serde(default)]
+    pub wrkflw_pull_config: bool,
     #[serde(default = "default_agent")]
     pub agent: String,
     #[serde(default)]
@@ -264,6 +269,7 @@ impl Config {
                 ("base_url", "wrkflw_base_url"),
                 ("token", "wrkflw_token"),
                 ("mirror", "wrkflw_mirror"),
+                ("pull_config", "wrkflw_pull_config"),
             ],
         )?;
         let mut c: Config = value.try_into().context("parse TOML config")?;
@@ -983,6 +989,7 @@ mod tests {
             wrkflw_base_url: default_wrkflw_base_url(),
             wrkflw_token: None,
             wrkflw_mirror: false,
+            wrkflw_pull_config: false,
         }
     }
 

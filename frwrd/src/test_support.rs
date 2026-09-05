@@ -78,6 +78,7 @@ pub fn test_config() -> crate::config::Config {
         wrkflw_base_url: crate::config::DEFAULT_WRKFLW_BASE_URL.to_string(),
         wrkflw_token: None,
         wrkflw_mirror: false,
+        wrkflw_pull_config: false,
     }
 }
 
