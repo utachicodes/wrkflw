@@ -172,7 +172,8 @@ fn load_run_config(path: &str) -> Result<config::Config> {
         bail!(message);
     }
     let expanded_path = util::expand_home(path);
-    let mut cfg = config::Config::load(path).with_context(|| format!("load config {expanded_path}"))?;
+    let mut cfg =
+        config::Config::load(path).with_context(|| format!("load config {expanded_path}"))?;
     control::maybe_pull(&mut cfg);
     jobs::Ledger::capture_legacy_schedule_baseline(&cfg)
         .context("capture existing schedule migration baseline")?;

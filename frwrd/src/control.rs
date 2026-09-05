@@ -70,10 +70,7 @@ pub async fn pull(base_url: &str, token: &str) -> Result<PulledConfig> {
         .timeout(std::time::Duration::from_secs(15))
         .build()
         .context("build control-plane client")?;
-    let url = format!(
-        "{}/api/v1/gateway/pull",
-        base_url.trim_end_matches('/')
-    );
+    let url = format!("{}/api/v1/gateway/pull", base_url.trim_end_matches('/'));
     let response = client
         .post(url)
         .bearer_auth(token)
