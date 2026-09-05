@@ -1,5 +1,5 @@
 {
-  "name": "slate.do",
+  "name": "wrkflw",
   "version": "0.0.0",
   "private": true,
   "description": "A card-first control plane for human and agent work.",
@@ -15,14 +15,14 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/owainlewis/slate.do.git"
+    "url": "git+https://github.com/utachicodes/wrkflw.git"
   },
   "keywords": [],
   "author": "",
   "bugs": {
-    "url": "https://github.com/owainlewis/slate.do/issues"
+    "url": "https://github.com/utachicodes/wrkflw/issues"
   },
-  "homepage": "https://github.com/owainlewis/slate.do#readme",
+  "homepage": "https://github.com/utachicodes/wrkflw#readme",
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@tailwindcss/vite": "^4.3.3",
