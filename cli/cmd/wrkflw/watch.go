@@ -62,7 +62,7 @@ type watcher struct {
 	listID       string
 	source       sourceCheckout
 	registry     *registry
-	slateBinary  string
+	wrkflwBinary  string
 	executorPath string
 	out          io.Writer
 	now          func() time.Time
@@ -91,7 +91,7 @@ func watchCmd(c client, args []string) error {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return errors.New("unexpected arguments; run 'slate help watch'")
+		return errors.New("unexpected arguments; run 'wrkflw help watch'")
 	}
 	if strings.TrimSpace(*listID) != "" && !validUUID(strings.TrimSpace(*listID)) {
 		return errors.New("--list must be a valid list ID")
@@ -123,7 +123,7 @@ func watchCmd(c client, args []string) error {
 // state behind.
 func newWatcher(ctx context.Context, c client, options watchOptions, out io.Writer) (*watcher, error) {
 	if !processGroupsSupported {
-		return nil, errors.New("slate watch runs on macOS and Linux, where a whole executor process group can be stopped")
+		return nil, errors.New("wrkflw watch runs on macOS and Linux, where a whole executor process group can be stopped")
 	}
 	selected, err := loadProfile(options.profileName)
 	if err != nil {
@@ -171,7 +171,7 @@ func newWatcher(ctx context.Context, c client, options watchOptions, out io.Writ
 			selected.TokenEnv, who.User.AgentID, options.profileName, selected.AgentID)
 	}
 	if !who.Capabilities.ManagedRuns {
-		return nil, errors.New("this Slate server does not support managed runs yet; deploy the server before running a watcher")
+		return nil, errors.New("this Wrkflw server does not support managed runs yet; deploy the server before running a watcher")
 	}
 
 	source, err := openSourceCheckout(ctx, options.workdir)
@@ -187,7 +187,7 @@ func newWatcher(ctx context.Context, c client, options watchOptions, out io.Writ
 		return nil, err
 	}
 	if retained >= maxRetainedRuns {
-		return nil, fmt.Errorf("profile %q is holding %d retained worktrees, the limit; inspect them with 'slate runs list --profile %s' and release one with 'slate runs clean <run-id>'",
+		return nil, fmt.Errorf("profile %q is holding %d retained worktrees, the limit; inspect them with 'wrkflw runs list --profile %s' and release one with 'wrkflw runs clean <run-id>'",
 			options.profileName, retained, options.profileName)
 	}
 
@@ -199,7 +199,7 @@ func newWatcher(ctx context.Context, c client, options watchOptions, out io.Writ
 		listID:       options.listID,
 		source:       source,
 		registry:     runs,
-		slateBinary:  binary,
+		wrkflwBinary:  binary,
 		executorPath: executorPath,
 		out:          out,
 		now:          time.Now,
@@ -242,11 +242,11 @@ func (w *watcher) refuseWhileWorkTaskExists(ctx context.Context) error {
 }
 
 // resolveSlateBinary finds the exact binary that is running, so the prompt can
-// name it and an unrelated slate earlier on PATH cannot be used instead.
+// name it and an unrelated wrkflw earlier on PATH cannot be used instead.
 func resolveSlateBinary() (string, error) {
 	binary, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("could not resolve the running slate binary: %w", err)
+		return "", fmt.Errorf("could not resolve the running wrkflw binary: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(binary); err == nil {
 		binary = resolved
@@ -283,7 +283,7 @@ func (w *watcher) run(ctx context.Context) error {
 			return err
 		}
 		if retained >= maxRetainedRuns {
-			return fmt.Errorf("profile %q is holding %d retained worktrees, the limit; release one with 'slate runs clean <run-id>' to continue",
+			return fmt.Errorf("profile %q is holding %d retained worktrees, the limit; release one with 'wrkflw runs clean <run-id>' to continue",
 				w.profileName, retained)
 		}
 		var candidates []taskView
@@ -347,7 +347,7 @@ func (w *watcher) run(ctx context.Context) error {
 			launchFailures++
 			w.logf("The executor exited without claiming task %s.", candidates[0].ID)
 			if launchFailures >= launchFailureLimit {
-				return fmt.Errorf("stopped after %d consecutive runs that never claimed; check the profile's executor command and its Slate credential", launchFailures)
+				return fmt.Errorf("stopped after %d consecutive runs that never claimed; check the profile's executor command and its Wrkflw credential", launchFailures)
 			}
 			w.sleep(ctx, pollInterval)
 		default:
@@ -379,7 +379,7 @@ func (w *watcher) attempt(ctx context.Context, candidate taskView) (string, erro
 				return runStateAmbiguous, fmt.Errorf("%w: record run %s: %v; cleanup also failed: %v; retaining %s on %s also failed: %v",
 					errUndiscoverableRun, runID, err, cleanupErr, worktree, branch, retainErr)
 			}
-			return runStateAmbiguous, fmt.Errorf("record run %s: %w; cleanup also failed, so it remains in 'slate runs list': %v", runID, err, cleanupErr)
+			return runStateAmbiguous, fmt.Errorf("record run %s: %w; cleanup also failed, so it remains in 'wrkflw runs list': %v", runID, err, cleanupErr)
 		}
 		return "", err
 	}
@@ -393,13 +393,13 @@ func (w *watcher) attempt(ctx context.Context, candidate taskView) (string, erro
 			if saveErr := w.registry.save(record); saveErr != nil {
 				w.logf("Could not record retained run %s after cleanup failed: %v", runID, saveErr)
 			}
-			return runStateAmbiguous, fmt.Errorf("profile %q exceeded its worktree limit and run %s could not be removed; it remains in 'slate runs list': %w",
+			return runStateAmbiguous, fmt.Errorf("profile %q exceeded its worktree limit and run %s could not be removed; it remains in 'wrkflw runs list': %w",
 				w.profileName, runID, cleanupErr)
 		}
 		if err := w.registry.remove(runID); err != nil {
 			return "", fmt.Errorf("%w: remove run %s after releasing its over-limit worktree: %v", errRunRecordRemoval, runID, err)
 		}
-		return "", fmt.Errorf("profile %q is holding %d worktrees, over the limit of %d; release one with 'slate runs clean <run-id>'",
+		return "", fmt.Errorf("profile %q is holding %d worktrees, over the limit of %d; release one with 'wrkflw runs clean <run-id>'",
 			w.profileName, retained, maxRetainedRuns)
 	}
 
@@ -411,7 +411,7 @@ func (w *watcher) attempt(ctx context.Context, candidate taskView) (string, erro
 			if saveErr := w.registry.save(record); saveErr != nil {
 				w.logf("Could not record retained run %s after launch cleanup failed: %v", runID, saveErr)
 			}
-			return runStateAmbiguous, fmt.Errorf("%w; run %s could not be removed and remains in 'slate runs list': %v", err, runID, cleanupErr)
+			return runStateAmbiguous, fmt.Errorf("%w; run %s could not be removed and remains in 'wrkflw runs list': %v", err, runID, cleanupErr)
 		}
 		if removeErr := w.registry.remove(runID); removeErr != nil {
 			return "", fmt.Errorf("%w: launch failed (%v); remove released run record %s: %v", errRunRecordRemoval, err, runID, removeErr)
@@ -515,9 +515,9 @@ func (w *watcher) startExecutor(ctx context.Context, candidate taskView, runID s
 }
 
 // executorEnvironment gives the child exactly what it needs: its run, the exact
-// Slate binary, the base URL, and the agent credential.
+// Wrkflw binary, the base URL, and the agent credential.
 func (w *watcher) executorEnvironment(runID string) []string {
-	binaryDir := filepath.Dir(w.slateBinary)
+	binaryDir := filepath.Dir(w.wrkflwBinary)
 	env := make([]string, 0, len(os.Environ())+4)
 	for _, entry := range os.Environ() {
 		name, _, found := strings.Cut(entry, "=")
@@ -525,17 +525,17 @@ func (w *watcher) executorEnvironment(runID string) []string {
 			continue
 		}
 		switch name {
-		case "PATH", "SLATE_RUN_ID", "SLATE_BIN", "SLATE_API_TOKEN", "SLATE_BASE_URL":
+		case "PATH", "WRKFLW_RUN_ID", "WRKFLW_BIN", "WRKFLW_API_TOKEN", "WRKFLW_BASE_URL":
 			continue
 		}
 		env = append(env, entry)
 	}
 	env = append(env,
 		"PATH="+binaryDir+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"SLATE_RUN_ID="+runID,
-		"SLATE_BIN="+w.slateBinary,
-		"SLATE_BASE_URL="+w.client.baseURL,
-		"SLATE_API_TOKEN="+w.client.token,
+		"WRKFLW_RUN_ID="+runID,
+		"WRKFLW_BIN="+w.wrkflwBinary,
+		"WRKFLW_BASE_URL="+w.client.baseURL,
+		"WRKFLW_API_TOKEN="+w.client.token,
 	)
 	return env
 }
@@ -857,7 +857,7 @@ func (w *watcher) reportOutcome(state string, candidate taskView, runID string, 
 		w.logf("Run %s ended and the watcher could not tell whether it ever held task %s.", runID, candidate.ID)
 		w.logf("Nothing was deleted: %s is kept on %s in case it holds work.", worktree, branch)
 	}
-	w.logf("Release it later with 'slate runs clean %s'.", runID)
+	w.logf("Release it later with 'wrkflw runs clean %s'.", runID)
 }
 
 // newRunID produces the execution identity the server binds to one claim.

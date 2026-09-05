@@ -20,17 +20,17 @@ func runsCmd(args []string) error {
 			return err
 		}
 		if fs.NArg() != 0 {
-			return errors.New("usage: slate runs list [--profile <name>]")
+			return errors.New("usage: wrkflw runs list [--profile <name>]")
 		}
 		return listRuns(strings.TrimSpace(*profileName))
 	case "clean":
-		id, err := singleID("slate runs clean <run-id>", args[1:])
+		id, err := singleID("wrkflw runs clean <run-id>", args[1:])
 		if err != nil {
 			return err
 		}
 		return cleanRun(context.Background(), strings.TrimSpace(id))
 	default:
-		return fmt.Errorf("unknown runs command %q; run 'slate help runs'", args[0])
+		return fmt.Errorf("unknown runs command %q; run 'wrkflw help runs'", args[0])
 	}
 }
 

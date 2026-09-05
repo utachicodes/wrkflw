@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const defaultBaseURL = "https://slate.do"
+const defaultBaseURL = "https://wrkflw"
 
 const maxTaskEntryBodyBytes = 16 * 1024
 
@@ -52,7 +52,7 @@ func (e *APIError) Error() string {
 	if detail == "" {
 		detail = e.Message
 	}
-	return fmt.Sprintf("slate API %d: %s", status, detail)
+	return fmt.Sprintf("wrkflw API %d: %s", status, detail)
 }
 
 // withContext returns a copy whose requests are cancelled with ctx.
@@ -73,9 +73,9 @@ func run(args []string) error {
 		return printHelp("")
 	}
 	c := client{
-		baseURL: env("SLATE_BASE_URL", defaultBaseURL),
-		token:   os.Getenv("SLATE_API_TOKEN"),
-		runID:   env("SLATE_RUN_ID", ""),
+		baseURL: env("WRKFLW_BASE_URL", defaultBaseURL),
+		token:   os.Getenv("WRKFLW_API_TOKEN"),
+		runID:   env("WRKFLW_RUN_ID", ""),
 		http:    &http.Client{Timeout: 30 * time.Second},
 		stdin:   os.Stdin,
 	}
@@ -99,13 +99,13 @@ func run(args []string) error {
 	case "runs":
 		return runsCmd(args[2:])
 	default:
-		return fmt.Errorf("unknown command %q; run 'slate help'", args[1])
+		return fmt.Errorf("unknown command %q; run 'wrkflw help'", args[1])
 	}
 }
 
 func printVersion(args []string, w io.Writer) error {
 	if len(args) != 0 {
-		return errors.New("usage: slate version")
+		return errors.New("usage: wrkflw version")
 	}
 	return json.NewEncoder(w).Encode(map[string]string{"version": version})
 }
@@ -120,33 +120,33 @@ func printHelp(topic string) error {
 }
 
 var helpText = map[string]string{
-	"": `Slate CLI controls lists, tasks, and agent workflow.
+	"": `Wrkflw CLI controls lists, tasks, and agent workflow.
 
 Configuration:
-  SLATE_API_TOKEN   Required API token created in Slate settings
-  SLATE_BASE_URL    API URL (default: https://slate.do)
-  SLATE_RUN_ID      Managed execution run ID supplied by the watcher
+  WRKFLW_API_TOKEN   Required API token created in Wrkflw settings
+  WRKFLW_BASE_URL    API URL (default: https://wrkflw)
+  WRKFLW_RUN_ID      Managed execution run ID supplied by the watcher
 
 Usage:
-  slate version
-  slate help [auth|lists|tasks|watch|runs]
-  slate auth status
-  slate lists <command>
-  slate tasks <command>
-  slate watch --profile <name>
-  slate runs <command>
+  wrkflw version
+  wrkflw help [auth|lists|tasks|watch|runs]
+  wrkflw auth status
+  wrkflw lists <command>
+  wrkflw tasks <command>
+  wrkflw watch --profile <name>
+  wrkflw runs <command>
 
 All successful command output is JSON. IDs are returned by list/get commands.
-Run "slate help <topic>" for every command and flag.
+Run "wrkflw help <topic>" for every command and flag.
 `,
 	"watch": `Usage:
-  slate watch --profile <name> [--list <list-id>] [--workdir <git-path>]
+  wrkflw watch --profile <name> [--list <list-id>] [--workdir <git-path>]
 
 Runs one configured agent against its assigned Ready tasks. The watcher pins
 the source commit at startup. For each task it creates a disposable Git
 worktree from that commit, starts the profile's executor there with the task
 prompt on stdin, and watches that exact run. Restart after updating the source
-branch. The agent claims the task, does the work, and reports through the Slate
+branch. The agent claims the task, does the work, and reports through the Wrkflw
 CLI. The watcher never claims or writes to the task itself.
 
 The source checkout must be on a named branch with nothing uncommitted, and
@@ -161,14 +161,14 @@ inspection. Runs that lose the claim or exit before ever claiming are deleted.
 A profile keeps at most 10 retained worktrees; at the limit no new run starts
 until one is released.
 
-Profiles live in SLATE_CONFIG, or slate/config.json under the user
+Profiles live in WRKFLW_CONFIG, or wrkflw/config.json under the user
 configuration directory:
 
   {
     "profiles": {
       "codex": {
-        "agentId": "<the agent's Slate ID>",
-        "tokenEnv": "SLATE_CODEX_TOKEN",
+        "agentId": "<the agent's Wrkflw ID>",
+        "tokenEnv": "WRKFLW_CODEX_TOKEN",
         "command": ["codex", "exec", "-"]
       }
     }
@@ -178,23 +178,23 @@ The token itself is never stored, only the name of the variable holding it.
 Profile changes take effect when the watcher restarts.
 `,
 	"runs": `Usage:
-  slate runs list [--profile <name>]
-  slate runs clean <run-id>
+  wrkflw runs list [--profile <name>]
+  wrkflw runs clean <run-id>
 
 "list" shows retained runs and where their worktrees are. "clean" releases one
 worktree once nothing from the run is running and the worktree is clean. It
 never forces and it keeps the branch, so any commits stay reachable.
 `,
 	"auth": `Usage:
-  slate auth status                 Verify the token and show its user
+  wrkflw auth status                 Verify the token and show its user
 `,
 	"lists": `Usage:
-  slate lists list
-  slate lists get <list-id>
-  slate lists create --name <name> [--goal <goal>] [--inbox]
-  slate lists update <list-id> [--name <name>] [--goal <goal>] [--inbox=true|false] [--sort-order <n>]
-  slate lists delete <list-id>
-  slate lists reorder <list-id>...
+  wrkflw lists list
+  wrkflw lists get <list-id>
+  wrkflw lists create --name <name> [--goal <goal>] [--inbox]
+  wrkflw lists update <list-id> [--name <name>] [--goal <goal>] [--inbox=true|false] [--sort-order <n>]
+  wrkflw lists delete <list-id>
+  wrkflw lists reorder <list-id>...
 
 "get" returns every active item and the 20 most recently updated completed
 items in the list. Use "tasks list --status done" to page older completed work.
@@ -202,18 +202,18 @@ items in the list. Use "tasks list --status done" to page older completed work.
 "buckets" is accepted as an alias for "lists".
 `,
 	"tasks": `Usage:
-  slate tasks list [--list <list-id>] [--status <status>] [--priority <p0|p1|p2|p3>] [--limit <n>] [--cursor <cursor>]
-  slate tasks get <task-id>
-  slate tasks pull [--list <list-id>] [--priority <p0|p1|p2|p3>] [--limit <n>]
-  slate tasks create --title <title> [--list <list-id> | --parent <task-id>] [--description <text>] [--date <YYYY-MM-DD>] [--idempotency-key <key>]
-  slate tasks update <task-id> [--title <title>] [--description <text>] [--date <YYYY-MM-DD>] [--list <list-id>] [--priority <p0|p1|p2|p3>]
-  slate tasks delete <task-id>
-  slate tasks reorder --list <list-id> <task-id>...
-  slate tasks claim <task-id>
-  slate tasks entries <task-id> [--run <run-id>]
-  slate tasks comment <task-id> (--body <text> | --file <path>) [--idempotency-key <key>]
-  slate tasks output <task-id> (--body <text> | --file <path>) --idempotency-key <key>
-  slate tasks status <task-id> new|queued|working|needs_review|done
+  wrkflw tasks list [--list <list-id>] [--status <status>] [--priority <p0|p1|p2|p3>] [--limit <n>] [--cursor <cursor>]
+  wrkflw tasks get <task-id>
+  wrkflw tasks pull [--list <list-id>] [--priority <p0|p1|p2|p3>] [--limit <n>]
+  wrkflw tasks create --title <title> [--list <list-id> | --parent <task-id>] [--description <text>] [--date <YYYY-MM-DD>] [--idempotency-key <key>]
+  wrkflw tasks update <task-id> [--title <title>] [--description <text>] [--date <YYYY-MM-DD>] [--list <list-id>] [--priority <p0|p1|p2|p3>]
+  wrkflw tasks delete <task-id>
+  wrkflw tasks reorder --list <list-id> <task-id>...
+  wrkflw tasks claim <task-id>
+  wrkflw tasks entries <task-id> [--run <run-id>]
+  wrkflw tasks comment <task-id> (--body <text> | --file <path>) [--idempotency-key <key>]
+  wrkflw tasks output <task-id> (--body <text> | --file <path>) --idempotency-key <key>
+  wrkflw tasks status <task-id> new|queued|working|needs_review|done
 
 "pull" returns open queued tasks. Claim before starting work. Use an empty
 --description or --date value to clear that field, or an empty --priority to
@@ -232,7 +232,7 @@ func authCmd(c client, args []string) error {
 		return printHelp("auth")
 	}
 	if len(args) != 1 || args[0] != "status" {
-		return errors.New("usage: slate auth status; run 'slate help auth'")
+		return errors.New("usage: wrkflw auth status; run 'wrkflw help auth'")
 	}
 	return c.getJSON("/api/v1/me", nil)
 }
@@ -242,16 +242,16 @@ func listsCmd(c client, args []string) error {
 		return printHelp("lists")
 	}
 	if len(args) < 1 {
-		return errors.New("usage: slate lists <command>; run 'slate help lists'")
+		return errors.New("usage: wrkflw lists <command>; run 'wrkflw help lists'")
 	}
 	switch args[0] {
 	case "list":
 		if len(args) != 1 {
-			return errors.New("usage: slate lists list")
+			return errors.New("usage: wrkflw lists list")
 		}
 		return c.getJSON("/api/v1/lists", nil)
 	case "get":
-		id, err := singleID("slate lists get <list-id>", args[1:])
+		id, err := singleID("wrkflw lists get <list-id>", args[1:])
 		if err != nil {
 			return err
 		}
@@ -271,7 +271,7 @@ func listsCmd(c client, args []string) error {
 		return c.sendJSON(http.MethodPost, "/api/v1/lists", body)
 	case "update":
 		if len(args) < 2 {
-			return errors.New("usage: slate lists update <list-id> [flags]")
+			return errors.New("usage: wrkflw lists update <list-id> [flags]")
 		}
 		id := args[1]
 		fs := newFlagSet("lists update")
@@ -291,7 +291,7 @@ func listsCmd(c client, args []string) error {
 		}
 		return c.sendJSON(http.MethodPatch, "/api/v1/lists/"+url.PathEscape(id), body)
 	case "delete":
-		id, err := singleID("slate lists delete <list-id>", args[1:])
+		id, err := singleID("wrkflw lists delete <list-id>", args[1:])
 		if err != nil {
 			return err
 		}
@@ -306,7 +306,7 @@ func listsCmd(c client, args []string) error {
 		}
 		return c.sendJSON(http.MethodPost, "/api/v1/lists/reorder", map[string]any{"ids": fs.Args()})
 	default:
-		return fmt.Errorf("unknown lists command %q; run 'slate help lists'", args[0])
+		return fmt.Errorf("unknown lists command %q; run 'wrkflw help lists'", args[0])
 	}
 }
 
@@ -315,7 +315,7 @@ func tasksCmd(c client, args []string) error {
 		return printHelp("tasks")
 	}
 	if len(args) < 1 {
-		return errors.New("usage: slate tasks <command>; run 'slate help tasks'")
+		return errors.New("usage: wrkflw tasks <command>; run 'wrkflw help tasks'")
 	}
 	switch args[0] {
 	case "list", "pull":
@@ -354,7 +354,7 @@ func tasksCmd(c client, args []string) error {
 		}
 		return c.getJSON(path, q)
 	case "get":
-		id, err := singleID("slate tasks get <task-id>", args[1:])
+		id, err := singleID("wrkflw tasks get <task-id>", args[1:])
 		if err != nil {
 			return err
 		}
@@ -389,7 +389,7 @@ func tasksCmd(c client, args []string) error {
 		return c.sendJSONWithHeaders(http.MethodPost, path, body, map[string]string{"Idempotency-Key": *idempotencyKey})
 	case "update":
 		if len(args) < 2 {
-			return errors.New("usage: slate tasks update <task-id> [flags]")
+			return errors.New("usage: wrkflw tasks update <task-id> [flags]")
 		}
 		id := args[1]
 		fs := newFlagSet("tasks update")
@@ -429,7 +429,7 @@ func tasksCmd(c client, args []string) error {
 		}
 		return c.sendJSONWithHeaders(http.MethodPatch, "/api/v1/tasks/"+url.PathEscape(id), body, managedRunHeaders())
 	case "delete":
-		id, err := singleID("slate tasks delete <task-id>", args[1:])
+		id, err := singleID("wrkflw tasks delete <task-id>", args[1:])
 		if err != nil {
 			return err
 		}
@@ -445,14 +445,14 @@ func tasksCmd(c client, args []string) error {
 		}
 		return c.sendJSON(http.MethodPost, "/api/v1/lists/"+url.PathEscape(*listID)+"/reorder-tasks", map[string]any{"ids": fs.Args()})
 	case "claim":
-		id, err := singleID("slate tasks claim <task-id>", args[1:])
+		id, err := singleID("wrkflw tasks claim <task-id>", args[1:])
 		if err != nil {
 			return err
 		}
 		return c.sendJSONWithHeaders(http.MethodPost, "/api/v1/agent/tasks/"+url.PathEscape(id)+"/claim", map[string]any{}, managedRunHeaders())
 	case "entries":
 		if len(args) < 2 {
-			return errors.New("usage: slate tasks entries <task-id> [--run <run-id>]")
+			return errors.New("usage: wrkflw tasks entries <task-id> [--run <run-id>]")
 		}
 		id := args[1]
 		fs := newFlagSet("tasks entries")
@@ -461,7 +461,7 @@ func tasksCmd(c client, args []string) error {
 			return err
 		}
 		if fs.NArg() != 0 || strings.TrimSpace(id) == "" {
-			return errors.New("usage: slate tasks entries <task-id> [--run <run-id>]")
+			return errors.New("usage: wrkflw tasks entries <task-id> [--run <run-id>]")
 		}
 		q := url.Values{}
 		setQuery(q, "runId", *runID)
@@ -470,23 +470,23 @@ func tasksCmd(c client, args []string) error {
 		return taskEntryCmd(c, args[0], args[1:])
 	case "status":
 		if len(args) != 3 {
-			return errors.New("usage: slate tasks status <task-id> new|queued|working|needs_review|done")
+			return errors.New("usage: wrkflw tasks status <task-id> new|queued|working|needs_review|done")
 		}
 		if !validStatus(args[2]) {
 			return fmt.Errorf("invalid status %q; choose new, queued, working, needs_review, or done", args[2])
 		}
-		if args[2] == "working" && env("SLATE_RUN_ID", "") == "" {
+		if args[2] == "working" && env("WRKFLW_RUN_ID", "") == "" {
 			return c.sendJSONWithHeaders(http.MethodPost, "/api/v1/agent/tasks/"+url.PathEscape(args[1])+"/claim", map[string]any{}, managedRunHeaders())
 		}
 		return c.sendJSONWithHeaders(http.MethodPatch, "/api/v1/agent/tasks/"+url.PathEscape(args[1])+"/status", map[string]any{"status": args[2]}, managedRunHeaders())
 	default:
-		return fmt.Errorf("unknown tasks command %q; run 'slate help tasks'", args[0])
+		return fmt.Errorf("unknown tasks command %q; run 'wrkflw help tasks'", args[0])
 	}
 }
 
 func taskEntryCmd(c client, kind string, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: slate tasks %s <task-id> (--body <text> | --file <path>) --idempotency-key <key>", kind)
+		return fmt.Errorf("usage: wrkflw tasks %s <task-id> (--body <text> | --file <path>) --idempotency-key <key>", kind)
 	}
 	id := args[0]
 	fs := newFlagSet("tasks " + kind)
@@ -515,7 +515,7 @@ func taskEntryCmd(c client, kind string, args []string) error {
 	if kind == "output" && strings.TrimSpace(*idempotencyKey) == "" {
 		return errors.New("--idempotency-key is required for output")
 	}
-	if env("SLATE_RUN_ID", "") != "" && strings.TrimSpace(*idempotencyKey) == "" {
+	if env("WRKFLW_RUN_ID", "") != "" && strings.TrimSpace(*idempotencyKey) == "" {
 		return errors.New("--idempotency-key is required for managed comments and outputs")
 	}
 	body := []byte(*bodyValue)
@@ -571,7 +571,7 @@ func readBoundedTaskEntryBody(reader io.Reader) ([]byte, error) {
 }
 
 func managedRunHeaders() map[string]string {
-	return map[string]string{"X-Slate-Run-ID": env("SLATE_RUN_ID", "")}
+	return map[string]string{"X-Wrkflw-Run-ID": env("WRKFLW_RUN_ID", "")}
 }
 
 func (c client) getJSON(path string, q url.Values) error {
@@ -603,7 +603,7 @@ func (c client) do(method string, path string, body any, target any) error {
 
 func (c client) doWithHeaders(method string, path string, body any, headers map[string]string, target any) error {
 	if c.token == "" {
-		return errors.New("SLATE_API_TOKEN is required; create one in Slate settings")
+		return errors.New("WRKFLW_API_TOKEN is required; create one in Wrkflw settings")
 	}
 	var reader io.Reader
 	if body != nil {
@@ -622,7 +622,7 @@ func (c client) doWithHeaders(method string, path string, body any, headers map[
 		return &requestBuildError{err: err}
 	}
 	if (req.URL.Scheme != "http" && req.URL.Scheme != "https") || req.URL.Host == "" {
-		return &requestBuildError{err: fmt.Errorf("SLATE_BASE_URL must be an absolute http or https URL")}
+		return &requestBuildError{err: fmt.Errorf("WRKFLW_BASE_URL must be an absolute http or https URL")}
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	for name, value := range headers {
@@ -747,12 +747,12 @@ func setQuery(q url.Values, key string, value string) {
 }
 
 // requestBuildError marks a request that could not be formed at all, which in
-// practice means SLATE_BASE_URL is not a usable address. It is permanent, so a
+// practice means WRKFLW_BASE_URL is not a usable address. It is permanent, so a
 // caller that retries transient failures must not retry this.
 type requestBuildError struct{ err error }
 
 func (e *requestBuildError) Error() string {
-	return fmt.Sprintf("SLATE_BASE_URL is not a usable address: %v", e.err)
+	return fmt.Sprintf("WRKFLW_BASE_URL is not a usable address: %v", e.err)
 }
 
 func (e *requestBuildError) Unwrap() error { return e.err }
@@ -766,7 +766,7 @@ type responseFormatError struct {
 }
 
 func (e *responseFormatError) Error() string {
-	return fmt.Sprintf("slate API %d returned a reply that is not JSON: %v", e.Status, e.err)
+	return fmt.Sprintf("wrkflw API %d returned a reply that is not JSON: %v", e.Status, e.err)
 }
 
 func (e *responseFormatError) Unwrap() error { return e.err }

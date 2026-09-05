@@ -24,7 +24,7 @@ const (
 	testTaskID  = "1b4e28ba-2fa1-11d2-883f-0016d3cca427"
 )
 
-// fakeSlate is a Slate server with just enough behavior to drive a watcher:
+// fakeSlate is a Wrkflw server with just enough behavior to drive a watcher:
 // one queue, one claim that only the first run wins, and run-tagged entries.
 type fakeSlate struct {
 	mu                sync.Mutex
@@ -66,7 +66,7 @@ func (f *fakeSlate) serve(w http.ResponseWriter, r *http.Request) {
 	if token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "); token != "" {
 		f.seenTokens = append(f.seenTokens, token)
 	}
-	if runID := r.Header.Get("X-Slate-Run-ID"); runID != "" {
+	if runID := r.Header.Get("X-Wrkflw-Run-ID"); runID != "" {
 		f.seenRunIDs = append(f.seenRunIDs, runID)
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -97,7 +97,7 @@ func (f *fakeSlate) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		f.status = "working"
-		f.owningRun = r.Header.Get("X-Slate-Run-ID")
+		f.owningRun = r.Header.Get("X-Wrkflw-Run-ID")
 		_ = json.NewEncoder(w).Encode(map[string]any{"id": testTaskID, "status": "working"})
 	case strings.HasSuffix(r.URL.Path, "/entries") && r.Method == http.MethodGet:
 		runFilter := r.URL.Query().Get("runId")
@@ -111,7 +111,7 @@ func (f *fakeSlate) serve(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(r.URL.Path, "/entries") && r.Method == http.MethodPost:
 		var input struct{ Kind, Body string }
 		_ = json.NewDecoder(r.Body).Decode(&input)
-		runID := r.Header.Get("X-Slate-Run-ID")
+		runID := r.Header.Get("X-Wrkflw-Run-ID")
 		if runID != f.owningRun {
 			w.WriteHeader(http.StatusConflict)
 			_, _ = w.Write([]byte(`{"code":"run_conflict","error":"this task belongs to a different agent run"}`))
@@ -147,7 +147,7 @@ func newSourceRepository(t *testing.T) string {
 	dir := t.TempDir()
 	for _, args := range [][]string{
 		{"init", "--initial-branch=main"},
-		{"config", "user.email", "watcher@slate.test"},
+		{"config", "user.email", "watcher@wrkflw.test"},
 		{"config", "user.name", "Watcher Test"},
 	} {
 		command := exec.Command("git", args...)
@@ -201,18 +201,18 @@ func newWatcherFixture(t *testing.T, executorPath string) *watcherFixture {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
-	t.Setenv("SLATE_CODEX_TOKEN", "slate_agent_secret_value")
-	t.Setenv("SLATE_API_TOKEN", "")
-	t.Setenv("SLATE_RUN_ID", "")
+	t.Setenv("WRKFLW_CODEX_TOKEN", "slate_agent_secret_value")
+	t.Setenv("WRKFLW_API_TOKEN", "")
+	t.Setenv("WRKFLW_RUN_ID", "")
 	t.Setenv("PATH", filepath.Dir(executorPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	configPath := filepath.Join(home, "config.json")
-	config := fmt.Sprintf(`{"profiles":{"codex":{"agentId":%q,"tokenEnv":"SLATE_CODEX_TOKEN","command":[%q]}}}`,
+	config := fmt.Sprintf(`{"profiles":{"codex":{"agentId":%q,"tokenEnv":"WRKFLW_CODEX_TOKEN","command":[%q]}}}`,
 		testAgentID, filepath.Base(executorPath))
 	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("SLATE_CONFIG", configPath)
+	t.Setenv("WRKFLW_CONFIG", configPath)
 
 	return &watcherFixture{
 		source: newSourceRepository(t), server: server, fake: fake,
@@ -256,17 +256,17 @@ func TestAValidTaskLaunchesInItsOwnWorktreeWithTheRunEnvironment(t *testing.T) {
 prompt=$(cat)
 {
   echo "cwd=$(pwd -P)"
-  echo "run=$SLATE_RUN_ID"
-  echo "bin=$SLATE_BIN"
-  echo "base=$SLATE_BASE_URL"
-  echo "token_present=$([ -n "$SLATE_API_TOKEN" ] && echo yes || echo no)"
+  echo "run=$WRKFLW_RUN_ID"
+  echo "bin=$WRKFLW_BIN"
+  echo "base=$WRKFLW_BASE_URL"
+  echo "token_present=$([ -n "$WRKFLW_API_TOKEN" ] && echo yes || echo no)"
   echo "path_head=$(echo "$PATH" | cut -d: -f1)"
   echo "prompt<<"
   echo "$prompt"
   echo ">>"
 } > %s
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
-"$SLATE_BIN" tasks output %s --body "Done." --idempotency-key "watch-run:%s:$SLATE_RUN_ID:output" >/dev/null
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks output %s --body "Done." --idempotency-key "watch-run:%s:$WRKFLW_RUN_ID:output" >/dev/null
 `, report, testTaskID, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
 
@@ -275,7 +275,7 @@ prompt=$(cat)
 		t.Fatal(err)
 	}
 	// The watcher must use this test's binary, not whatever is on PATH.
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 
 	state, err := w.attempt(context.Background(), fixture.fake.queued[0])
 	if err != nil {
@@ -307,10 +307,10 @@ prompt=$(cat)
 	if !strings.Contains(seen, "run="+record.RunID+"\n") {
 		t.Fatalf("run ID was not passed:\n%s", seen)
 	}
-	if !strings.Contains(seen, "bin="+w.slateBinary+"\n") {
-		t.Fatalf("SLATE_BIN is not the exact binary:\n%s", seen)
+	if !strings.Contains(seen, "bin="+w.wrkflwBinary+"\n") {
+		t.Fatalf("WRKFLW_BIN is not the exact binary:\n%s", seen)
 	}
-	if !strings.Contains(seen, "path_head="+filepath.Dir(w.slateBinary)+"\n") {
+	if !strings.Contains(seen, "path_head="+filepath.Dir(w.wrkflwBinary)+"\n") {
 		t.Fatalf("the binary directory was not prepended to PATH:\n%s", seen)
 	}
 	if !strings.Contains(seen, "token_present=yes") {
@@ -353,7 +353,7 @@ prompt=$(cat)
 // the real commands rather than a stub.
 func buildTestSlateBinary(t *testing.T) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "slate")
+	path := filepath.Join(t.TempDir(), "wrkflw")
 	command := exec.Command("go", "build", "-o", path, ".")
 	if out, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("building the CLI: %v %s", err, out)
@@ -395,7 +395,7 @@ exit 1
 	if err == nil && len(entries) != 0 {
 		t.Fatalf("a losing run left %d worktrees in %s", len(entries), base)
 	}
-	branches, err := runGit(context.Background(), fixture.source, "branch", "--list", "slate/*")
+	branches, err := runGit(context.Background(), fixture.source, "branch", "--list", "wrkflw/*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,15 +412,15 @@ exit 1
 func TestABlockedRunKeepsItsWorktreeAndStops(t *testing.T) {
 	executor := writeExecutor(t, "blocked-codex", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
-"$SLATE_BIN" tasks comment %s --body "Blocked on a decision." --idempotency-key "blocked" >/dev/null
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks comment %s --body "Blocked on a decision." --idempotency-key "blocked" >/dev/null
 `, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
 	w, err := fixture.newWatcher(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 
 	state, err := w.attempt(context.Background(), fixture.fake.queued[0])
 	if err != nil {
@@ -445,7 +445,7 @@ cat >/dev/null
 func TestAnExecutorThatClaimsThenExitsIsInterrupted(t *testing.T) {
 	executor := writeExecutor(t, "quitting-codex", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
 exit 0
 `, testTaskID))
 	fixture := newWatcherFixture(t, executor)
@@ -453,7 +453,7 @@ exit 0
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 
 	state, err := w.attempt(context.Background(), fixture.fake.queued[0])
 	if err != nil {
@@ -522,8 +522,8 @@ func TestStartupRefusesBeforeCreatingAnything(t *testing.T) {
 			f.fake.managedRuns = false
 		}, "managed runs"},
 		{"missing token", func(t *testing.T, f *watcherFixture) {
-			t.Setenv("SLATE_CODEX_TOKEN", "")
-		}, "SLATE_CODEX_TOKEN"},
+			t.Setenv("WRKFLW_CODEX_TOKEN", "")
+		}, "WRKFLW_CODEX_TOKEN"},
 		{"dirty source checkout", func(t *testing.T, f *watcherFixture) {
 			if err := os.WriteFile(filepath.Join(f.source, "scratch.txt"), []byte("x"), 0o600); err != nil {
 				t.Fatal(err)
@@ -622,15 +622,15 @@ func TestListScopeAppliesToBothQueries(t *testing.T) {
 func TestRunsListAndCleanManageRetainedWorktrees(t *testing.T) {
 	executor := writeExecutor(t, "blocked-codex-2", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
-"$SLATE_BIN" tasks comment %s --body "Blocked." --idempotency-key "blocked" >/dev/null
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks comment %s --body "Blocked." --idempotency-key "blocked" >/dev/null
 `, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
 	w, err := fixture.newWatcher(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	if _, err := w.attempt(context.Background(), fixture.fake.queued[0]); err != nil {
 		t.Fatal(err)
 	}
@@ -679,15 +679,15 @@ cat >/dev/null
 func TestTheRegistryHoldsNoCredential(t *testing.T) {
 	executor := writeExecutor(t, "recording", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
-"$SLATE_BIN" tasks output %s --body "Done." --idempotency-key "k" >/dev/null
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks output %s --body "Done." --idempotency-key "k" >/dev/null
 `, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
 	w, err := fixture.newWatcher(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	if _, err := w.attempt(context.Background(), fixture.fake.queued[0]); err != nil {
 		t.Fatal(err)
 	}
@@ -852,8 +852,8 @@ func TestAnExecutorThatNeverClaimsDoesNotSpin(t *testing.T) {
 func TestTheWorkingGuardIsRecheckedBeforeEveryOffer(t *testing.T) {
 	executor := writeExecutor(t, "one-run-codex", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
-"$SLATE_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null
 `, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
 	fixture.fake.workingAfterClaim = true
@@ -862,7 +862,7 @@ cat >/dev/null
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	err = w.run(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "already in progress") {
 		t.Fatalf("run returned %v, want the later working task to stop dispatch", err)
@@ -951,7 +951,7 @@ func TestOverLimitCleanupFailureKeepsTheRunDiscoverable(t *testing.T) {
 		return nil
 	}
 	state, err := w.attempt(ctx, fixture.fake.queued[0])
-	if err == nil || !strings.Contains(err.Error(), "remains in 'slate runs list'") {
+	if err == nil || !strings.Contains(err.Error(), "remains in 'wrkflw runs list'") {
 		t.Fatalf("state = %q err = %v, want a discoverable cleanup failure", state, err)
 	}
 	if state != runStateAmbiguous {
@@ -993,7 +993,7 @@ func TestLaunchCleanupFailureKeepsTheRunDiscoverable(t *testing.T) {
 		return nil
 	}
 	state, err := w.attempt(ctx, fixture.fake.queued[0])
-	if err == nil || !strings.Contains(err.Error(), "remains in 'slate runs list'") {
+	if err == nil || !strings.Contains(err.Error(), "remains in 'wrkflw runs list'") {
 		t.Fatalf("state = %q err = %v, want a discoverable launch cleanup failure", state, err)
 	}
 	if state != runStateAmbiguous {
@@ -1028,7 +1028,7 @@ func TestInitialRecordAndCleanupFailuresKeepTheRunDiscoverable(t *testing.T) {
 		return nil
 	}
 	state, err := w.attempt(ctx, fixture.fake.queued[0])
-	if err == nil || !strings.Contains(err.Error(), "remains in 'slate runs list'") {
+	if err == nil || !strings.Contains(err.Error(), "remains in 'wrkflw runs list'") {
 		t.Fatalf("state = %q err = %v, want both failures reported", state, err)
 	}
 	if state != runStateAmbiguous {
@@ -1060,7 +1060,7 @@ func TestUnrecordedCleanupFailureStopsDispatch(t *testing.T) {
 	if recoverableAttemptError(err) {
 		t.Fatal("the watcher would continue after it could neither clean nor record a run")
 	}
-	if !strings.Contains(err.Error(), "worktrees") || !strings.Contains(err.Error(), "slate/") {
+	if !strings.Contains(err.Error(), "worktrees") || !strings.Contains(err.Error(), "wrkflw/") {
 		t.Fatalf("error does not name the orphan paths: %v", err)
 	}
 }
@@ -1094,9 +1094,9 @@ func TestDisposableRecordRemovalFailureStopsDispatch(t *testing.T) {
 func TestTwoWatchersRaceAndOnlyTheClaimantContinues(t *testing.T) {
 	executor := writeExecutor(t, "racing-codex", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null 2>&1 || exit 1
+"$WRKFLW_BIN" tasks claim %s >/dev/null 2>&1 || exit 1
 echo "work" > implementation.txt
-"$SLATE_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null 2>&1
+"$WRKFLW_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null 2>&1
 `, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
 	binary := buildTestSlateBinary(t)
@@ -1105,12 +1105,12 @@ echo "work" > implementation.txt
 	if err != nil {
 		t.Fatal(err)
 	}
-	first.slateBinary = binary
+	first.wrkflwBinary = binary
 	second, err := fixture.newWatcher(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second.slateBinary = binary
+	second.wrkflwBinary = binary
 
 	candidate := fixture.fake.queued[0]
 	states := make([]string, 2)
@@ -1174,7 +1174,7 @@ echo "work" > implementation.txt
 	if err != nil || status != "" {
 		t.Fatalf("source checkout changed: %q %v", status, err)
 	}
-	branches, err := runGit(context.Background(), fixture.source, "branch", "--list", "slate/*")
+	branches, err := runGit(context.Background(), fixture.source, "branch", "--list", "wrkflw/*")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1203,9 +1203,9 @@ func TestTwoWatcherProcessesCompeteForOneTask(t *testing.T) {
 cat >/dev/null
 echo started >> %q
 while [ "$(wc -l < %q)" -lt 2 ]; do sleep 0.02; done
-"$SLATE_BIN" tasks claim %s >/dev/null 2>&1 || exit 1
+"$WRKFLW_BIN" tasks claim %s >/dev/null 2>&1 || exit 1
 echo "work" > implementation.txt
-"$SLATE_BIN" tasks output %s --body "Done." --idempotency-key "out-$SLATE_RUN_ID" >/dev/null 2>&1
+"$WRKFLW_BIN" tasks output %s --body "Done." --idempotency-key "out-$WRKFLW_RUN_ID" >/dev/null 2>&1
 `, barrier, barrier, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
 	binary := buildTestSlateBinary(t)
@@ -1217,7 +1217,7 @@ echo "work" > implementation.txt
 	watchers := make([]runningWatcher, 2)
 	for index := range watchers {
 		command := exec.Command(binary, "watch", "--profile", fixture.profile, "--workdir", fixture.source)
-		command.Env = append(os.Environ(), "SLATE_BASE_URL="+fixture.server.URL)
+		command.Env = append(os.Environ(), "WRKFLW_BASE_URL="+fixture.server.URL)
 		command.Stdout = &watchers[index].output
 		command.Stderr = &watchers[index].output
 		watchers[index].command = command
@@ -1298,8 +1298,8 @@ cat >/dev/null
 trap '' TERM
 ( trap '' TERM; while true; do sleep 0.2; done ) &
 echo $! > %s
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
-"$SLATE_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null
 while true; do sleep 0.2; done
 `, marker, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
@@ -1307,7 +1307,7 @@ while true; do sleep 0.2; done
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 
 	state, err := w.attempt(context.Background(), fixture.fake.queued[0])
 	if err != nil {
@@ -1642,16 +1642,16 @@ func TestTheLoopCarriesTheListScope(t *testing.T) {
 
 // TestThePromptKeepsTheWorktreeCleanable came from running the watcher for
 // real: an agent that wrote its report inside the worktree left it untracked,
-// which makes "slate runs clean" refuse the worktree for ever.
+// which makes "wrkflw runs clean" refuse the worktree for ever.
 func TestThePromptKeepsTheWorktreeCleanable(t *testing.T) {
 	prompt := buildPrompt(promptDetails{
 		AgentID: testAgentID, AgentName: "Codex", TaskID: testTaskID, TaskTitle: "Do the thing",
-		RunID: "abcdabcd-1010-4010-8010-abcdabcdabcd", Worktree: "/tmp/worktree", Branch: "slate/x",
+		RunID: "abcdabcd-1010-4010-8010-abcdabcdabcd", Worktree: "/tmp/worktree", Branch: "wrkflw/x",
 	})
 	for _, expected := range []string{
 		"OUTSIDE this worktree",
-		"${TMPDIR:-/tmp}/slate-report-$SLATE_RUN_ID.md",
-		"${TMPDIR:-/tmp}/slate-note-$SLATE_RUN_ID.md",
+		"${TMPDIR:-/tmp}/wrkflw-report-$WRKFLW_RUN_ID.md",
+		"${TMPDIR:-/tmp}/wrkflw-note-$WRKFLW_RUN_ID.md",
 		"leave nothing",
 	} {
 		if !strings.Contains(prompt, expected) {
@@ -1743,7 +1743,7 @@ func TestAReadFailureThatOverlapsExecutorExitMarksTheRunUncertain(t *testing.T) 
 func TestATerminalMonitoringErrorStopsTheExecutor(t *testing.T) {
 	executor := writeExecutor(t, "long-runner", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null 2>&1
+"$WRKFLW_BIN" tasks claim %s >/dev/null 2>&1
 while true; do sleep 0.2; done
 `, testTaskID))
 	fixture := newWatcherFixture(t, executor)
@@ -1765,7 +1765,7 @@ while true; do sleep 0.2; done
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	w.sleep = func(context.Context, time.Duration) {}
 	revoked = true
 
@@ -1834,7 +1834,7 @@ func TestAProfileWithTrailingContentIsRejected(t *testing.T) {
 	if err := os.WriteFile(path, []byte(valid+valid), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("SLATE_CONFIG", path)
+	t.Setenv("WRKFLW_CONFIG", path)
 	if _, err := loadProfile("codex"); err == nil {
 		t.Fatal("two concatenated configuration objects were accepted")
 	} else if !strings.Contains(err.Error(), "content after") {
@@ -1915,7 +1915,7 @@ func TestRunsWithoutASubcommandShowsUsage(t *testing.T) {
 func TestATerminalRunFailureStopsTheWatcher(t *testing.T) {
 	executor := writeExecutor(t, "claiming-codex", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null 2>&1
+"$WRKFLW_BIN" tasks claim %s >/dev/null 2>&1
 sleep 0.3
 `, testTaskID))
 	fixture := newWatcherFixture(t, executor)
@@ -1940,7 +1940,7 @@ sleep 0.3
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	w.sleep = func(context.Context, time.Duration) {}
 
 	err = w.run(context.Background())

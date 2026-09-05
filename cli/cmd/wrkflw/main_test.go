@@ -41,20 +41,20 @@ func TestValidPriorityIncludesP3(t *testing.T) {
 }
 
 func TestEnvFallback(t *testing.T) {
-	t.Setenv("SLATE_BASE_URL", "")
-	if got := env("SLATE_BASE_URL", defaultBaseURL); got != "https://slate.do" {
+	t.Setenv("WRKFLW_BASE_URL", "")
+	if got := env("WRKFLW_BASE_URL", defaultBaseURL); got != "https://wrkflw" {
 		t.Fatalf("env fallback = %q", got)
 	}
 }
 
 func TestNoArgumentsShowsHelp(t *testing.T) {
-	if err := run([]string{"slate"}); err != nil {
+	if err := run([]string{"wrkflw"}); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestHelpDocumentsEveryResource(t *testing.T) {
-	if !strings.Contains(helpText[""], "slate version") {
+	if !strings.Contains(helpText[""], "wrkflw version") {
 		t.Fatal("help does not document version command")
 	}
 	for _, topic := range []string{"", "auth", "lists", "tasks", "watch", "runs"} {
@@ -71,7 +71,7 @@ func TestHelpDocumentsEveryResource(t *testing.T) {
 	for _, statement := range []string{
 		"exit before ever claiming are deleted",
 		"at most 10 retained worktrees",
-		"slate runs clean <run-id>",
+		"wrkflw runs clean <run-id>",
 	} {
 		joined := helpText["watch"] + helpText["runs"]
 		if !strings.Contains(joined, statement) {
@@ -81,7 +81,7 @@ func TestHelpDocumentsEveryResource(t *testing.T) {
 }
 
 func TestManagedTaskCommandsSendRunHeadersAndExactRunQuery(t *testing.T) {
-	t.Setenv("SLATE_RUN_ID", "11111111-1111-4111-8111-111111111111")
+	t.Setenv("WRKFLW_RUN_ID", "11111111-1111-4111-8111-111111111111")
 	type requestRecord struct {
 		method         string
 		uri            string
@@ -94,7 +94,7 @@ func TestManagedTaskCommandsSendRunHeadersAndExactRunQuery(t *testing.T) {
 		record := requestRecord{
 			method:         r.Method,
 			uri:            r.URL.RequestURI(),
-			runID:          r.Header.Get("X-Slate-Run-ID"),
+			runID:          r.Header.Get("X-Wrkflw-Run-ID"),
 			idempotencyKey: r.Header.Get("Idempotency-Key"),
 		}
 		if r.Body != nil {
@@ -143,7 +143,7 @@ func TestManagedTaskCommandsSendRunHeadersAndExactRunQuery(t *testing.T) {
 }
 
 func TestTaskEntryBodySourcesAndLimitsFailLocally(t *testing.T) {
-	t.Setenv("SLATE_RUN_ID", "")
+	t.Setenv("WRKFLW_RUN_ID", "")
 	requested := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requested++
@@ -177,7 +177,7 @@ func TestTaskEntryBodySourcesAndLimitsFailLocally(t *testing.T) {
 			t.Fatalf("tasks %s unexpectedly succeeded", strings.Join(command, " "))
 		}
 	}
-	t.Setenv("SLATE_RUN_ID", "11111111-1111-4111-8111-111111111111")
+	t.Setenv("WRKFLW_RUN_ID", "11111111-1111-4111-8111-111111111111")
 	if err := tasksCmd(c, []string{"comment", "task-1", "--body", "managed"}); err == nil || !strings.Contains(err.Error(), "idempotency") {
 		t.Fatalf("managed comment error = %v", err)
 	}
@@ -187,7 +187,7 @@ func TestTaskEntryBodySourcesAndLimitsFailLocally(t *testing.T) {
 }
 
 func TestTaskCommentReadsAFile(t *testing.T) {
-	t.Setenv("SLATE_RUN_ID", "")
+	t.Setenv("WRKFLW_RUN_ID", "")
 	path := filepath.Join(t.TempDir(), "comment.txt")
 	if err := os.WriteFile(path, []byte("file comment"), 0o600); err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestTaskCommentReadsAFile(t *testing.T) {
 }
 
 func TestOutputRetryReusesCallerIdempotencyKey(t *testing.T) {
-	t.Setenv("SLATE_RUN_ID", "11111111-1111-4111-8111-111111111111")
+	t.Setenv("WRKFLW_RUN_ID", "11111111-1111-4111-8111-111111111111")
 	var keys []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		keys = append(keys, r.Header.Get("Idempotency-Key"))
@@ -350,7 +350,7 @@ func TestTasksUpdateCanClearDate(t *testing.T) {
 }
 
 func TestTasksWorkingStatusUsesAtomicClaimEndpoint(t *testing.T) {
-	t.Setenv("SLATE_RUN_ID", "")
+	t.Setenv("WRKFLW_RUN_ID", "")
 	var method string
 	var requestedPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -371,10 +371,10 @@ func TestTasksWorkingStatusUsesAtomicClaimEndpoint(t *testing.T) {
 }
 
 func TestManagedWorkingStatusUsesStatusEndpointAndPreservesCodedError(t *testing.T) {
-	t.Setenv("SLATE_RUN_ID", "11111111-1111-4111-8111-111111111111")
+	t.Setenv("WRKFLW_RUN_ID", "11111111-1111-4111-8111-111111111111")
 	var method, requestedPath, runID string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		method, requestedPath, runID = r.Method, r.URL.RequestURI(), r.Header.Get("X-Slate-Run-ID")
+		method, requestedPath, runID = r.Method, r.URL.RequestURI(), r.Header.Get("X-Wrkflw-Run-ID")
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		_, _ = w.Write([]byte(`{"code":"managed_run_status_locked","error":"managed run status is controlled by output"}`))

@@ -71,13 +71,13 @@ type registry struct {
 // XDG_STATE_HOME where it is set and falling back to the conventional path.
 func registryDir() (string, error) {
 	if override := strings.TrimSpace(os.Getenv("XDG_STATE_HOME")); override != "" {
-		return filepath.Join(override, "slate", "runs"), nil
+		return filepath.Join(override, "wrkflw", "runs"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("no home directory for the run registry: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "slate", "runs"), nil
+	return filepath.Join(home, ".local", "state", "wrkflw", "runs"), nil
 }
 
 func openRegistry() (*registry, error) {

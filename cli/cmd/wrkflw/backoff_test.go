@@ -316,8 +316,8 @@ func TestIdleAndFailureWaitsAreIndependent(t *testing.T) {
 func TestFindingWorkResetsTheIdleWait(t *testing.T) {
 	executor := writeExecutor(t, "resetting-codex", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
-"$SLATE_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null
 `, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
 	// Nothing to do at first.
@@ -327,7 +327,7 @@ cat >/dev/null
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	w.idle.random = fixedRandom(0)
 	w.failure.random = fixedRandom(0)
 
@@ -419,7 +419,7 @@ func TestMonitoringWaitsOutARateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 
 	var waits []time.Duration
 	// Scaled down so the test is quick, while still pacing the loop.
@@ -535,7 +535,7 @@ func TestAFinishedRunStopsWhenTheServerWillNotAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	w.sleep = func(context.Context, time.Duration) {}
 
 	done := make(chan string, 1)
@@ -580,7 +580,7 @@ func TestAnInterruptMidReadIsRecordedAsInterrupted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	out := &strings.Builder{}
 	w.out = out
 
@@ -660,8 +660,8 @@ func TestTheLoopAndTheReadsAgreeOnWhatIsTerminal(t *testing.T) {
 func TestAFinishedRunIsGivenAFewMoreReads(t *testing.T) {
 	executor := writeExecutor(t, "reporting-then-exit", fmt.Sprintf(`
 cat >/dev/null
-"$SLATE_BIN" tasks claim %s >/dev/null || exit 1
-"$SLATE_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null
+"$WRKFLW_BIN" tasks claim %s >/dev/null || exit 1
+"$WRKFLW_BIN" tasks output %s --body "Done." --idempotency-key "out" >/dev/null
 exit 0
 `, testTaskID, testTaskID))
 	fixture := newWatcherFixture(t, executor)
@@ -687,7 +687,7 @@ exit 0
 	if err != nil {
 		t.Fatal(err)
 	}
-	w.slateBinary = buildTestSlateBinary(t)
+	w.wrkflwBinary = buildTestSlateBinary(t)
 	w.sleep = func(context.Context, time.Duration) {}
 
 	state, err := w.attempt(context.Background(), fixture.fake.queued[0])

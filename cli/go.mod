@@ -1,3 +1,3 @@
-module github.com/owainlewis/slate.do/cli
+module github.com/utachicodes/wrkflw/cli
 
 go 1.26

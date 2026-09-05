@@ -79,13 +79,13 @@ func worktreeBase(profileName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("no user cache directory for worktrees: %w", err)
 	}
-	return filepath.Join(cache, "slate", "worktrees", profileName), nil
+	return filepath.Join(cache, "wrkflw", "worktrees", profileName), nil
 }
 
 // runBranchName derives a branch from validated identifiers, never from task
 // text, so a title can never shape a path or a ref.
 func runBranchName(taskID string, runID string) string {
-	return "slate/" + taskID + "-" + shortRunID(runID)
+	return "wrkflw/" + taskID + "-" + shortRunID(runID)
 }
 
 // lockRepositoryWorktrees serializes Git worktree metadata changes across
@@ -100,7 +100,7 @@ func lockRepositoryWorktrees(ctx context.Context, repositoryRoot string) (func()
 	if !filepath.IsAbs(commonDir) {
 		commonDir = filepath.Join(repositoryRoot, commonDir)
 	}
-	return lockFile(ctx, filepath.Join(filepath.Clean(commonDir), "slate-worktrees.lock"))
+	return lockFile(ctx, filepath.Join(filepath.Clean(commonDir), "wrkflw-worktrees.lock"))
 }
 
 func shortRunID(runID string) string {

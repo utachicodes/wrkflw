@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// profile names one local executor and the Slate identity it must authenticate
+// profile names one local executor and the Wrkflw identity it must authenticate
 // as. It never holds the credential itself, only the name of the environment
 // variable that carries it.
 type profile struct {
@@ -24,17 +24,17 @@ type watcherConfig struct {
 	Profiles map[string]profile `json:"profiles"`
 }
 
-// configPath resolves SLATE_CONFIG, then the operating system's user
+// configPath resolves WRKFLW_CONFIG, then the operating system's user
 // configuration directory.
 func configPath() (string, error) {
-	if override := strings.TrimSpace(os.Getenv("SLATE_CONFIG")); override != "" {
+	if override := strings.TrimSpace(os.Getenv("WRKFLW_CONFIG")); override != "" {
 		return override, nil
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("no user configuration directory: %w", err)
 	}
-	return filepath.Join(dir, "slate", "config.json"), nil
+	return filepath.Join(dir, "wrkflw", "config.json"), nil
 }
 
 // loadProfile reads one named profile and rejects anything it does not
@@ -92,10 +92,10 @@ func profileNames(config watcherConfig) string {
 
 func (p profile) validate(name string) error {
 	if !validUUID(strings.TrimSpace(p.AgentID)) {
-		return fmt.Errorf("profile %q needs agentId to be the agent's Slate ID", name)
+		return fmt.Errorf("profile %q needs agentId to be the agent's Wrkflw ID", name)
 	}
 	if strings.TrimSpace(p.TokenEnv) == "" {
-		return fmt.Errorf("profile %q needs tokenEnv, the name of the variable holding its Slate token", name)
+		return fmt.Errorf("profile %q needs tokenEnv, the name of the variable holding its Wrkflw token", name)
 	}
 	if strings.HasPrefix(strings.TrimSpace(p.TokenEnv), "slate_") {
 		// A token pasted where its variable name belongs would otherwise be
@@ -112,7 +112,7 @@ func (p profile) validate(name string) error {
 func (p profile) token() (string, error) {
 	value := strings.TrimSpace(os.Getenv(strings.TrimSpace(p.TokenEnv)))
 	if value == "" {
-		return "", fmt.Errorf("%s is empty; export the agent's Slate token there", strings.TrimSpace(p.TokenEnv))
+		return "", fmt.Errorf("%s is empty; export the agent's Wrkflw token there", strings.TrimSpace(p.TokenEnv))
 	}
 	return value, nil
 }
