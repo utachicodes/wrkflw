@@ -5,8 +5,10 @@ body { margin: 0; background: var(--bg); color: var(--ink); font-family: Inter, 
 a { color: inherit; }
 .landing { min-height: 100vh; }
 .landing-nav { height: 74px; display: flex; align-items: center; justify-content: space-between; max-width: 1180px; margin: auto; padding: 0 32px; }
-.brand { display: inline-flex; align-items: center; color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none; }
-.brand::before { width: 19px; height: 19px; margin-right: 8px; border-radius: 6px 6px 6px 2px; background: var(--violet); content: ""; transform: rotate(-5deg); }
+.brand { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-size: 16px; font-weight: 700; text-decoration: none; }
+.brand img { display: block; }
+.landing-footer span { display: inline-flex; align-items: center; gap: 7px; }
+.landing-footer span img { display: block; }
 .brand span { color: var(--faint); font-weight: 500; }
 .docs-nav-actions, .docs-footer-links { display: flex; align-items: center; gap: 18px; }
 .docs-nav-actions a, .landing-footer a { color: var(--soft); font-size: 13px; font-weight: 600; text-decoration: none; }
