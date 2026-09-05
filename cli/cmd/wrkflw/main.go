@@ -98,6 +98,8 @@ func run(args []string) error {
 		return watchCmd(c, args[2:])
 	case "runs":
 		return runsCmd(args[2:])
+	case "scan":
+		return scanCmd(c, args[2:])
 	default:
 		return fmt.Errorf("unknown command %q; run 'wrkflw help'", args[1])
 	}
@@ -113,7 +115,7 @@ func printVersion(args []string, w io.Writer) error {
 func printHelp(topic string) error {
 	help, ok := helpText[topic]
 	if !ok {
-		return fmt.Errorf("unknown help topic %q; choose auth, lists, tasks, watch, or runs", topic)
+		return fmt.Errorf("unknown help topic %q; choose auth, lists, tasks, watch, runs, or scan", topic)
 	}
 	_, err := fmt.Fprint(os.Stdout, help)
 	return err
@@ -129,12 +131,13 @@ Configuration:
 
 Usage:
   wrkflw version
-  wrkflw help [auth|lists|tasks|watch|runs]
+  wrkflw help [auth|lists|tasks|watch|runs|scan]
   wrkflw auth status
   wrkflw lists <command>
   wrkflw tasks <command>
   wrkflw watch --profile <name>
   wrkflw runs <command>
+  wrkflw scan [dir]
 
 All successful command output is JSON. IDs are returned by list/get commands.
 Run "wrkflw help <topic>" for every command and flag.
@@ -184,6 +187,19 @@ Profile changes take effect when the watcher restarts.
 "list" shows retained runs and where their worktrees are. "clean" releases one
 worktree once nothing from the run is running and the worktree is clean. It
 never forces and it keeps the branch, so any commits stay reachable.
+`,
+	"scan": `Usage:
+  wrkflw scan [dir] [--min-severity low|medium|high] [--create-tasks]
+
+Screens a codebase for SQL built from strings, hardcoded secrets, unscoped
+data access, shell execution of interpolated text, and unescaped HTML sinks.
+Exits non-zero when findings at or above --min-severity remain, so it gates
+releases in CI.
+
+--create-tasks files each finding as an inbox task under a stable idempotency
+key derived from the finding, so re-runs never duplicate tasks. Assign the
+tasks to a security agent: each fix travels the normal path of claim,
+isolated worktree, output, and human review. Needs WRKFLW_API_TOKEN.
 `,
 	"auth": `Usage:
   wrkflw auth status                 Verify the token and show its user
