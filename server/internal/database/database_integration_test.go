@@ -9,9 +9,9 @@ import (
 )
 
 func TestConfiguredPoolCapsConnectionsAndTimesOutAcquisition(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run database integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run database integration tests")
 	}
 	ctx := context.Background()
 	db, err := Open(ctx, databaseURL, Options{
@@ -81,9 +81,9 @@ func TestConfiguredPoolCapsConnectionsAndTimesOutAcquisition(t *testing.T) {
 }
 
 func TestApplicationConnectionLimitIsSharedAcrossPools(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run database integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run database integration tests")
 	}
 	options := Options{
 		MaxConnections:          2,

@@ -11,16 +11,16 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/migrations"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/migrations"
 )
 
 func TestCredentialLimitRejectsBeforeAuthenticationMutation(t *testing.T) {
 	db := openServerIntegrationDB(t)
 	ctx := context.Background()
 	store := auth.NewPGStore(db)
-	owner, err := store.CreateAdmin(ctx, fmt.Sprintf("preauth-%d@slate.test", time.Now().UnixNano()), "hash")
+	owner, err := store.CreateAdmin(ctx, fmt.Sprintf("preauth-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,9 +123,9 @@ func requestWithCredentials(handler http.Handler, session string, bearer string)
 
 func openServerIntegrationDB(t *testing.T) *database.Pool {
 	t.Helper()
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run server integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run server integration tests")
 	}
 	ctx := context.Background()
 	admin, err := database.Open(ctx, databaseURL)
@@ -141,7 +141,7 @@ func openServerIntegrationDB(t *testing.T) *database.Pool {
 	if err != nil || (parsedURL.Scheme != "postgres" && parsedURL.Scheme != "postgresql") {
 		_, _ = admin.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
 		admin.Close()
-		t.Fatalf("SLATE_TEST_DATABASE_URL must be a PostgreSQL URL: %v", err)
+		t.Fatalf("WRKFLW_TEST_DATABASE_URL must be a PostgreSQL URL: %v", err)
 	}
 	query := parsedURL.Query()
 	query.Set("search_path", schema+",public")

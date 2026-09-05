@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/owainlewis/slate.do/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/database"
 )
 
 const (

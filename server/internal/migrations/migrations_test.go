@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/database"
 )
 
 func TestTaskPriorityMigrationAllowsP3(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -37,9 +37,9 @@ func TestTaskPriorityMigrationAllowsP3(t *testing.T) {
 }
 
 func TestManagedRunMigrationAddsFencingColumnsAndLookupIndex(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -78,9 +78,9 @@ func TestManagedRunMigrationAddsFencingColumnsAndLookupIndex(t *testing.T) {
 }
 
 func TestTaskActivityMigrationIndexesRunEventsForTaskDeletion(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -106,9 +106,9 @@ func TestTaskActivityMigrationIndexesRunEventsForTaskDeletion(t *testing.T) {
 }
 
 func TestRemoveArchivedAgentsPreservesCardsAndConversationHistory(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -195,9 +195,9 @@ func TestRemoveArchivedAgentsPreservesCardsAndConversationHistory(t *testing.T) 
 }
 
 func TestOneAgentPerOwnerMigrationUpgradesExistingAgentSchema(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -310,9 +310,9 @@ func TestOneAgentPerOwnerMigrationUpgradesExistingAgentSchema(t *testing.T) {
 }
 
 func TestAgentIdentityMigrationPreservesAgentsCredentialsAndAssignments(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -456,9 +456,9 @@ func TestAgentIdentityMigrationPreservesAgentsCredentialsAndAssignments(t *testi
 }
 
 func TestAgentCredentialRotationMigrationStoresOnlyReferences(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -542,9 +542,9 @@ func TestAgentCredentialRotationMigrationStoresOnlyReferences(t *testing.T) {
 }
 
 func TestAgentAssignmentMetadataIndexCoversCompletedTasks(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -633,9 +633,9 @@ func TestAgentAssignmentMetadataIndexCoversCompletedTasks(t *testing.T) {
 }
 
 func TestAgentCredentialMigrationEnforcesOneActiveCredential(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -691,9 +691,9 @@ func TestAgentCredentialMigrationEnforcesOneActiveCredential(t *testing.T) {
 }
 
 func TestProEntitlementMigrationKeepsExistingAdminsUsable(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -759,9 +759,9 @@ func TestProEntitlementMigrationKeepsExistingAdminsUsable(t *testing.T) {
 }
 
 func TestAccountStorageUsageMigrationBackfillsUTF8Bytes(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -873,9 +873,9 @@ func TestAccountStorageUsageMigrationBackfillsUTF8Bytes(t *testing.T) {
 }
 
 func TestAdminMemberRolesMigration(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -931,9 +931,9 @@ func TestAdminMemberRolesMigration(t *testing.T) {
 }
 
 func TestScheduledDateMigrationPreservesExistingValues(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -1000,9 +1000,9 @@ func TestScheduledDateMigrationPreservesExistingValues(t *testing.T) {
 }
 
 func TestNeutralItemsMigrationsPreserveExistingTasksAsActions(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -1121,9 +1121,9 @@ func TestNeutralItemsMigrationsPreserveExistingTasksAsActions(t *testing.T) {
 }
 
 func TestNewCardStatusMigrationAddsCaptureStateAndDefault(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -1169,9 +1169,9 @@ func TestNewCardStatusMigrationAddsCaptureStateAndDefault(t *testing.T) {
 }
 
 func TestStatusOnlyCardsMigrationPreservesCompletionAndSyncsLegacyColumn(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -1306,9 +1306,9 @@ func TestStatusOnlyCardsMigrationPreservesCompletionAndSyncsLegacyColumn(t *test
 }
 
 func TestStatusDoneRolloutCompatibilityRestoresDevelopmentSchema(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -1360,9 +1360,9 @@ func TestStatusDoneRolloutCompatibilityRestoresDevelopmentSchema(t *testing.T) {
 }
 
 func TestTaskIdempotencyRequestDataMigrationLeavesLegacyIdentityUnknownAndCapturesOldWriters(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -1458,9 +1458,9 @@ func TestTaskIdempotencyRequestDataMigrationLeavesLegacyIdentityUnknownAndCaptur
 }
 
 func TestLegacyTaskIdempotencyMigrationClearsMutableDevelopmentBackfill(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 
 	ctx := context.Background()
@@ -1519,9 +1519,9 @@ func TestLegacyTaskIdempotencyMigrationClearsMutableDevelopmentBackfill(t *testi
 }
 
 func TestListsLeaveBoardsOwningThemselvesWithOneInboxEach(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run migration integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run migration integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)

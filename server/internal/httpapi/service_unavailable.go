@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/database"
 )
 
 func WriteServiceUnavailable(w http.ResponseWriter, err error) bool {

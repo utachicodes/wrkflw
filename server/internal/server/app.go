@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/owainlewis/slate.do/server/internal/agents"
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/boards"
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/httpapi"
-	"github.com/owainlewis/slate.do/server/internal/ratelimit"
+	"github.com/utachicodes/wrkflw/server/internal/agents"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/boards"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/httpapi"
+	"github.com/utachicodes/wrkflw/server/internal/ratelimit"
 )
 
 type App struct {

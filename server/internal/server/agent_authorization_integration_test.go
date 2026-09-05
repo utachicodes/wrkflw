@@ -13,16 +13,16 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/boards"
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/migrations"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/boards"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/migrations"
 )
 
 func TestAgentCredentialsCannotCrossTaskOrAccountResourceBoundaries(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run server integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run server integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -35,7 +35,7 @@ func TestAgentCredentialsCannotCrossTaskOrAccountResourceBoundaries(t *testing.T
 	}
 
 	authStore := auth.NewPGStore(db)
-	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-route-owner-%d@slate.test", time.Now().UnixNano()), "hash")
+	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-route-owner-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestAgentCredentialsCannotCrossTaskOrAccountResourceBoundaries(t *testing.T
 	if _, err := boardStore.CreateTask(ctx, owner.ID, unrelatedList.ID, boards.CreateTaskInput{Title: "Agent B unrelated work", AssigneeAgentID: agentB.ID}); err != nil {
 		t.Fatal(err)
 	}
-	otherOwner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-route-other-%d@slate.test", time.Now().UnixNano()), "hash")
+	otherOwner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-route-other-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,9 +205,9 @@ func TestAgentCredentialsCannotCrossTaskOrAccountResourceBoundaries(t *testing.T
 }
 
 func TestManagedAgentRunHTTPContract(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run server integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run server integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -219,7 +219,7 @@ func TestManagedAgentRunHTTPContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	authStore := auth.NewPGStore(db)
-	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("managed-agent-route-%d@slate.test", time.Now().UnixNano()), "hash")
+	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("managed-agent-route-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestManagedAgentRunHTTPContract(t *testing.T) {
 		t.Fatalf("agent inbox read = %d %s, want 403", inbox.Code, inbox.Body.String())
 	}
 	runID := "33333333-3333-4333-8333-333333333333"
-	claim := agentRequestWithHeaders(t, app, token, http.MethodPost, "/api/v1/agent/tasks/"+task.ID+"/claim", `{}`, map[string]string{"X-Slate-Run-ID": runID})
+	claim := agentRequestWithHeaders(t, app, token, http.MethodPost, "/api/v1/agent/tasks/"+task.ID+"/claim", `{}`, map[string]string{"X-Wrkflw-Run-ID": runID})
 	if claim.Code != http.StatusOK || !strings.Contains(claim.Body.String(), `"status":"working"`) {
 		t.Fatalf("managed claim = %d %s", claim.Code, claim.Body.String())
 	}
@@ -263,11 +263,11 @@ func TestManagedAgentRunHTTPContract(t *testing.T) {
 	if missingRun.Code != http.StatusConflict || !strings.Contains(missingRun.Body.String(), `"code":"managed_run_mismatch"`) {
 		t.Fatalf("missing run comment = %d %s", missingRun.Code, missingRun.Body.String())
 	}
-	comment := agentRequestWithHeaders(t, app, token, http.MethodPost, "/api/v1/tasks/"+task.ID+"/entries", `{"kind":"comment","body":"working"}`, map[string]string{"Idempotency-Key": "managed-comment", "X-Slate-Run-ID": runID})
+	comment := agentRequestWithHeaders(t, app, token, http.MethodPost, "/api/v1/tasks/"+task.ID+"/entries", `{"kind":"comment","body":"working"}`, map[string]string{"Idempotency-Key": "managed-comment", "X-Wrkflw-Run-ID": runID})
 	if comment.Code != http.StatusCreated || !strings.Contains(comment.Body.String(), `"runId":"`+runID+`"`) {
 		t.Fatalf("managed comment = %d %s", comment.Code, comment.Body.String())
 	}
-	currentEdit := agentRequestWithHeaders(t, app, token, http.MethodPatch, "/api/v1/tasks/"+task.ID, `{"title":"Current run edit"}`, map[string]string{"X-Slate-Run-ID": runID})
+	currentEdit := agentRequestWithHeaders(t, app, token, http.MethodPatch, "/api/v1/tasks/"+task.ID, `{"title":"Current run edit"}`, map[string]string{"X-Wrkflw-Run-ID": runID})
 	if currentEdit.Code != http.StatusOK || !strings.Contains(currentEdit.Body.String(), `"title":"Current run edit"`) {
 		t.Fatalf("current managed run edit = %d %s", currentEdit.Code, currentEdit.Body.String())
 	}
@@ -275,7 +275,7 @@ func TestManagedAgentRunHTTPContract(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE tasks SET execution_run_id = $1 WHERE id = $2`, newerRunID, task.ID); err != nil {
 		t.Fatal(err)
 	}
-	staleEdit := agentRequestWithHeaders(t, app, token, http.MethodPatch, "/api/v1/tasks/"+task.ID, `{"title":"Stale run edit"}`, map[string]string{"X-Slate-Run-ID": runID})
+	staleEdit := agentRequestWithHeaders(t, app, token, http.MethodPatch, "/api/v1/tasks/"+task.ID, `{"title":"Stale run edit"}`, map[string]string{"X-Wrkflw-Run-ID": runID})
 	if staleEdit.Code != http.StatusConflict || !strings.Contains(staleEdit.Body.String(), `"code":"managed_run_mismatch"`) {
 		t.Fatalf("stale managed run edit = %d %s", staleEdit.Code, staleEdit.Body.String())
 	}
@@ -289,11 +289,11 @@ func TestManagedAgentRunHTTPContract(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE tasks SET execution_run_id = $1 WHERE id = $2`, runID, task.ID); err != nil {
 		t.Fatal(err)
 	}
-	status := agentRequestWithHeaders(t, app, token, http.MethodPatch, "/api/v1/agent/tasks/"+task.ID+"/status", `{"status":"needs_review"}`, map[string]string{"X-Slate-Run-ID": runID})
+	status := agentRequestWithHeaders(t, app, token, http.MethodPatch, "/api/v1/agent/tasks/"+task.ID+"/status", `{"status":"needs_review"}`, map[string]string{"X-Wrkflw-Run-ID": runID})
 	if status.Code != http.StatusConflict || !strings.Contains(status.Body.String(), `"code":"managed_run_status_locked"`) {
 		t.Fatalf("managed status = %d %s", status.Code, status.Body.String())
 	}
-	output := agentRequestWithHeaders(t, app, token, http.MethodPost, "/api/v1/tasks/"+task.ID+"/entries", `{"kind":"output","body":"done"}`, map[string]string{"Idempotency-Key": "managed-output", "X-Slate-Run-ID": runID})
+	output := agentRequestWithHeaders(t, app, token, http.MethodPost, "/api/v1/tasks/"+task.ID+"/entries", `{"kind":"output","body":"done"}`, map[string]string{"Idempotency-Key": "managed-output", "X-Wrkflw-Run-ID": runID})
 	if output.Code != http.StatusCreated || !strings.Contains(output.Body.String(), `"taskStatus":"needs_review"`) {
 		t.Fatalf("managed output = %d %s", output.Code, output.Body.String())
 	}
@@ -301,7 +301,7 @@ func TestManagedAgentRunHTTPContract(t *testing.T) {
 	if entries.Code != http.StatusOK || strings.Count(entries.Body.String(), `"runId":"`+runID+`"`) != 2 {
 		t.Fatalf("managed run entries = %d %s", entries.Code, entries.Body.String())
 	}
-	replay := agentRequestWithHeaders(t, app, token, http.MethodPost, "/api/v1/tasks/"+task.ID+"/entries", `{"kind":"output","body":"done"}`, map[string]string{"Idempotency-Key": "managed-output", "X-Slate-Run-ID": runID})
+	replay := agentRequestWithHeaders(t, app, token, http.MethodPost, "/api/v1/tasks/"+task.ID+"/entries", `{"kind":"output","body":"done"}`, map[string]string{"Idempotency-Key": "managed-output", "X-Wrkflw-Run-ID": runID})
 	if replay.Code != http.StatusCreated || replay.Body.String() != output.Body.String() {
 		t.Fatalf("managed output replay = %d %s, want %s", replay.Code, replay.Body.String(), output.Body.String())
 	}

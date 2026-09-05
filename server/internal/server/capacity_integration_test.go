@@ -10,14 +10,14 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/database"
 )
 
 func TestHealthReportsTheEffectiveDatabasePoolSize(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run capacity integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run capacity integration tests")
 	}
 	db, err := database.Open(context.Background(), databaseURL)
 	if err != nil {

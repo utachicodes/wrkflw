@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/migrations"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/migrations"
 )
 
 func TestCleanupRemovesOnlyExpiredOperationalDataAndIsIdempotent(t *testing.T) {
@@ -38,7 +38,7 @@ func TestCleanupRemovesOnlyExpiredOperationalDataAndIsIdempotent(t *testing.T) {
 		_, _ = db.Exec(context.Background(), "DELETE FROM api_rate_limit_metrics WHERE bucket_start IN ($1::timestamptz - interval '31 days', $1::timestamptz - interval '29 days')", now)
 	})
 	var userID, bucketID, taskID, agentID, oldCredentialID, liveCredentialID string
-	if err := db.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'test') RETURNING id::text`, marker+"@slate.test").Scan(&userID); err != nil {
+	if err := db.QueryRow(ctx, `INSERT INTO users (email, password_hash) VALUES ($1, 'test') RETURNING id::text`, marker+"@wrkflw.test").Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = db.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID) })
@@ -144,7 +144,7 @@ func TestCleanupDrainsMultipleBatches(t *testing.T) {
 	now := time.Now().UTC()
 	marker := fmt.Sprintf("cleanup-batch-%d", time.Now().UnixNano())
 	var userID string
-	if err := db.QueryRow(ctx, `INSERT INTO users (email,password_hash) VALUES ($1,'test') RETURNING id::text`, marker+"@slate.test").Scan(&userID); err != nil {
+	if err := db.QueryRow(ctx, `INSERT INTO users (email,password_hash) VALUES ($1,'test') RETURNING id::text`, marker+"@wrkflw.test").Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = db.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID) })
@@ -168,7 +168,7 @@ func TestCleanupReportsBudgetAndResumes(t *testing.T) {
 	now := time.Now().UTC()
 	marker := fmt.Sprintf("cleanup-budget-%d", time.Now().UnixNano())
 	var userID string
-	if err := db.QueryRow(ctx, `INSERT INTO users (email,password_hash) VALUES ($1,'test') RETURNING id::text`, marker+"@slate.test").Scan(&userID); err != nil {
+	if err := db.QueryRow(ctx, `INSERT INTO users (email,password_hash) VALUES ($1,'test') RETURNING id::text`, marker+"@wrkflw.test").Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = db.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID) })
@@ -197,7 +197,7 @@ func TestCleanupRoundRobinDoesNotStarveLaterRules(t *testing.T) {
 	now := time.Now().UTC()
 	marker := fmt.Sprintf("cleanup-fair-%d", time.Now().UnixNano())
 	var userID string
-	if err := db.QueryRow(ctx, `INSERT INTO users (email,password_hash) VALUES ($1,'test') RETURNING id::text`, marker+"@slate.test").Scan(&userID); err != nil {
+	if err := db.QueryRow(ctx, `INSERT INTO users (email,password_hash) VALUES ($1,'test') RETURNING id::text`, marker+"@wrkflw.test").Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = db.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID) })
@@ -245,7 +245,7 @@ func TestCleanupReportsEligibleRowsSkippedByLocks(t *testing.T) {
 	now := time.Now().UTC()
 	marker := fmt.Sprintf("cleanup-locked-%d", time.Now().UnixNano())
 	var userID string
-	if err := db.QueryRow(ctx, `INSERT INTO users (email,password_hash) VALUES ($1,'test') RETURNING id::text`, marker+"@slate.test").Scan(&userID); err != nil {
+	if err := db.QueryRow(ctx, `INSERT INTO users (email,password_hash) VALUES ($1,'test') RETURNING id::text`, marker+"@wrkflw.test").Scan(&userID); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = db.Exec(context.Background(), "DELETE FROM users WHERE id = $1", userID) })
@@ -302,9 +302,9 @@ func assertMarkerCount(t *testing.T, db *database.Pool, table string, column str
 
 func openIntegrationDB(t *testing.T) *database.Pool {
 	t.Helper()
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run cleanup integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run cleanup integration tests")
 	}
 	ctx := context.Background()
 	admin, err := database.Open(ctx, databaseURL)
@@ -320,7 +320,7 @@ func openIntegrationDB(t *testing.T) *database.Pool {
 	if err != nil || (parsedURL.Scheme != "postgres" && parsedURL.Scheme != "postgresql") {
 		_, _ = admin.Exec(ctx, "DROP SCHEMA "+schema+" CASCADE")
 		admin.Close()
-		t.Fatalf("SLATE_TEST_DATABASE_URL must be a PostgreSQL URL: %v", err)
+		t.Fatalf("WRKFLW_TEST_DATABASE_URL must be a PostgreSQL URL: %v", err)
 	}
 	query := parsedURL.Query()
 	query.Set("search_path", schema+",public")

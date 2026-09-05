@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/database"
 )
 
 //go:embed *.sql

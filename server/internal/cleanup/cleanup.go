@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/database"
 )
 
 const (

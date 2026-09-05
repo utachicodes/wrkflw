@@ -11,8 +11,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/ratelimit"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/ratelimit"
 )
 
 func TestEarlyAccessPageFollowsInviteConfiguration(t *testing.T) {

@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/migrations"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/migrations"
 )
 
 func TestSharedRollingLimitsEnforceThresholdResetAndConcurrency(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run rate-limit integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run rate-limit integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL, database.Options{
@@ -195,9 +195,9 @@ func TestSharedRollingLimitsEnforceThresholdResetAndConcurrency(t *testing.T) {
 }
 
 func TestRateLimitSettingsAreRuntimeDatabaseConfigurationAndExpiredStateIsRemoved(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run rate-limit integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run rate-limit integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -260,9 +260,9 @@ func TestRateLimitSettingsAreRuntimeDatabaseConfigurationAndExpiredStateIsRemove
 }
 
 func TestRateLimitTestClocksCannotShortenAWindow(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run rate-limit integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run rate-limit integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -328,9 +328,9 @@ func TestNormalizedKeysAreHashedAndDeduplicated(t *testing.T) {
 }
 
 func TestStagedAuthenticationRefundsCredentialWhenAccountRejectsAndRecordsOneMetric(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run rate-limit integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run rate-limit integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)
@@ -397,9 +397,9 @@ func TestStagedAuthenticationRefundsCredentialWhenAccountRejectsAndRecordsOneMet
 }
 
 func TestConcurrentCredentialReservationsDoNotExceedThreshold(t *testing.T) {
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run rate-limit integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run rate-limit integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)

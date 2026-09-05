@@ -11,15 +11,15 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/boards"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/boards"
 )
 
 func TestBoardAPIUsesSummaryCollectionsAndExactTaskDetail(t *testing.T) {
 	db := openServerIntegrationDB(t)
 	ctx := context.Background()
 	authStore := auth.NewPGStore(db)
-	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("history-api-%d@slate.test", time.Now().UnixNano()), "hash")
+	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("history-api-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
