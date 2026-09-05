@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/httpapi"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/httpapi"
 )
 
 type fakeStore struct {
@@ -174,7 +174,7 @@ func TestAgentLifecycleHandlersValidateAndMapStableResponses(t *testing.T) {
 	}
 
 	request := httptest.NewRequest(http.MethodPatch, "/api/v1/agents/agent-1", strings.NewReader(`{"displayName":"Builder","purpose":""}`))
-	request.Host = "slate.test"
+	request.Host = "wrkflw.test"
 	request.Header.Set("Origin", "https://evil.test")
 	request.SetPathValue("id", "agent-1")
 	response = httptest.NewRecorder()

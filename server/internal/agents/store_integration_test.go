@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/migrations"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/migrations"
 )
 
 func TestDetailAndWorkStayOwnerScoped(t *testing.T) {
@@ -19,11 +19,11 @@ func TestDetailAndWorkStayOwnerScoped(t *testing.T) {
 	authStore := auth.NewPGStore(db)
 	store := NewStore(db, authStore)
 	stamp := time.Now().UnixNano()
-	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-detail-owner-%d@slate.test", stamp), "hash")
+	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-detail-owner-%d@wrkflw.test", stamp), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-detail-other-%d@slate.test", stamp), "hash")
+	other, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-detail-other-%d@wrkflw.test", stamp), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,11 +67,11 @@ func TestCredentialLifecycleIsOwnerScopedAndIdempotent(t *testing.T) {
 	authStore := auth.NewPGStore(db)
 	store := NewStore(db, authStore)
 	stamp := time.Now().UnixNano()
-	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-credential-owner-%d@slate.test", stamp), "hash")
+	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-credential-owner-%d@wrkflw.test", stamp), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-credential-other-%d@slate.test", stamp), "hash")
+	other, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-credential-other-%d@wrkflw.test", stamp), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,11 +114,11 @@ func TestDetailAndWorkAreBoundedPaginatedAndPreserveChildContext(t *testing.T) {
 	authStore := auth.NewPGStore(db)
 	store := NewStore(db, authStore)
 	stamp := time.Now().UnixNano()
-	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-bounds-owner-%d@slate.test", stamp), "hash")
+	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-bounds-owner-%d@wrkflw.test", stamp), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-bounds-other-%d@slate.test", stamp), "hash")
+	other, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-bounds-other-%d@wrkflw.test", stamp), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,11 +186,11 @@ func TestAgentIdentityUpdatesStayOwnerScopedAndUnique(t *testing.T) {
 	authStore := auth.NewPGStore(db)
 	store := NewStore(db, authStore)
 	stamp := time.Now().UnixNano()
-	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-update-owner-%d@slate.test", stamp), "hash")
+	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-update-owner-%d@wrkflw.test", stamp), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-update-other-%d@slate.test", stamp), "hash")
+	other, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-update-other-%d@wrkflw.test", stamp), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestConcurrentCredentialRotationCreatesOneActiveCredential(t *testing.T) {
 	ctx, db := agentTestDatabase(t)
 	authStore := auth.NewPGStore(db)
 	store := NewStore(db, authStore)
-	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-rotation-owner-%d@slate.test", time.Now().UnixNano()), "hash")
+	owner, err := authStore.CreateAdmin(ctx, fmt.Sprintf("agent-rotation-owner-%d@wrkflw.test", time.Now().UnixNano()), "hash")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,9 +263,9 @@ func TestConcurrentCredentialRotationCreatesOneActiveCredential(t *testing.T) {
 
 func agentTestDatabase(t *testing.T) (context.Context, *database.Pool) {
 	t.Helper()
-	databaseURL := os.Getenv("SLATE_TEST_DATABASE_URL")
+	databaseURL := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if databaseURL == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run agent integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run agent integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, databaseURL)

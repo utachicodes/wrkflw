@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/httpapi"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/httpapi"
 )
 
 type detailStore interface {

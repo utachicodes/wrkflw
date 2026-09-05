@@ -3,7 +3,7 @@ package agents
 import (
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
 )
 
 const (
