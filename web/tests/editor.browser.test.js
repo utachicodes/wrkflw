@@ -12,7 +12,7 @@ function fixture(options = {}) {
   let releaseSummary;
   const summaryDelay = options.summaryPending ? new Promise(resolve => { releaseSummary = resolve; }) : null;
   return {
-    user: { id: "owner", email: "owner@example.com", displayName: "Owain Lewis", theme: "dark", entitlement: { plan: "pro", limits: { lists: 45, agents: 5, apiTokens: 10 } } },
+    user: { id: "owner", email: "owner@example.com", displayName: "Abdoullah Ndao", theme: "dark", entitlement: { plan: "pro", limits: { lists: 45, agents: 5, apiTokens: 10 } } },
     lists: [
       { id: "list-inbox", name: "Inbox", goal: "Capture now", color: "slate", isInbox: true, openCount: 1, sortOrder: 0 },
       { id: "list-product", name: "Product", goal: "Ship focused improvements", color: "blue", isInbox: false, openCount: 2, sortOrder: 1 },
@@ -228,7 +228,7 @@ async function startApp(t, viewport = { width: 1440, height: 960 }, options = {}
     if (entryMatch && request.method === "GET") return json(response, { entries: state.entries[entryMatch[1]] || [] });
     if (entryMatch && request.method === "POST") {
       const input = await requestJSON(request);
-      const entry = { id: `entry-${Object.values(state.entries).flat().length + 1}`, ...input, authorKind: "human", authorName: "Owain Lewis", createdAt: new Date().toISOString() };
+      const entry = { id: `entry-${Object.values(state.entries).flat().length + 1}`, ...input, authorKind: "human", authorName: "Abdoullah Ndao", createdAt: new Date().toISOString() };
       state.entries[entryMatch[1]] = [...(state.entries[entryMatch[1]] || []), entry];
       if (input.kind === "output") state.tasks.find(item => item.id === entryMatch[1]).status = "needs_review";
       return json(response, { ...entry, taskStatus: input.kind === "output" ? "needs_review" : undefined }, 201);
@@ -239,7 +239,7 @@ async function startApp(t, viewport = { width: 1440, height: 960 }, options = {}
       const input = await requestJSON(request);
       const agent = { id: `agent-${state.agents.length + 1}`, displayName: input.displayName, purpose: input.purpose, workCounts: {} };
       state.agents.push(agent);
-      return json(response, { ...agent, token: "slate_agent_one_time_secret" }, 201);
+      return json(response, { ...agent, token: "wrkflw_agent_one_time_secret" }, 201);
     }
     const agentWorkMatch = url.pathname.match(/^\/api\/v1\/agents\/([^/]+)\/work$/);
     if (agentWorkMatch) {
@@ -254,9 +254,9 @@ async function startApp(t, viewport = { width: 1440, height: 960 }, options = {}
     }
     if (agentMatch && request.method === "PATCH") { Object.assign(state.agents.find(item => item.id === agentMatch[1]), await requestJSON(request)); return json(response, state.agents.find(item => item.id === agentMatch[1])); }
     if (agentMatch && request.method === "DELETE") { state.agents = state.agents.filter(item => item.id !== agentMatch[1]); return json(response, {}); }
-    if (url.pathname.endsWith("/credential/rotate")) return json(response, { token: "slate_agent_rotated_secret" });
+    if (url.pathname.endsWith("/credential/rotate")) return json(response, { token: "wrkflw_agent_rotated_secret" });
     if (url.pathname === "/api/v1/api-tokens" && request.method === "GET") return json(response, { tokens: state.tokens });
-    if (url.pathname === "/api/v1/api-tokens" && request.method === "POST") { const input = await requestJSON(request); state.tokens.push({ id: `token-${state.tokens.length + 1}`, name: input.name }); return json(response, { token: "slate_personal_one_time_secret" }, 201); }
+    if (url.pathname === "/api/v1/api-tokens" && request.method === "POST") { const input = await requestJSON(request); state.tokens.push({ id: `token-${state.tokens.length + 1}`, name: input.name }); return json(response, { token: "wrkflw_personal_one_time_secret" }, 201); }
     if (url.pathname.startsWith("/api/v1/api-tokens/") && request.method === "DELETE") { state.tokens = state.tokens.filter(item => item.id !== url.pathname.split("/").at(-1)); return json(response, {}); }
     if (url.pathname === "/api/v1/me" && request.method === "PATCH") { Object.assign(state.user, await requestJSON(request)); return json(response, state.user); }
     if (url.pathname === "/api/v1/auth/register" && request.method === "POST") {
@@ -394,7 +394,7 @@ test("wordmark and typography use one neutral Inter system", async t => {
   const landingFamilies = await page.locator(".hero h1, .landing-section h2, .landing-preview-main > header h3").evaluateAll(elements => elements.map(element => getComputedStyle(element).fontFamily));
 
   await page.goto(`${origin}/early-access`);
-  await page.getByRole("heading", { name: "Join Slate." }).waitFor();
+  await page.getByRole("heading", { name: "Join wrkflw." }).waitFor();
   const authHeadingFamily = await page.locator(".auth-form-wrap h1").evaluate(element => getComputedStyle(element).fontFamily);
 
   for (const family of [appHeadingFamily, ...landingFamilies, authHeadingFamily]) {
@@ -407,11 +407,11 @@ test("wordmark and typography use one neutral Inter system", async t => {
 test("public routes stay light and the app restores the saved dark theme", async t => {
   const { page, pageErrors } = await startApp(t);
   assert.equal(await page.locator("html").evaluate(element => element.classList.contains("dark")), true);
-  await page.getByRole("button", { name: "Slate home" }).click();
+  await page.getByRole("button", { name: "wrkflw home" }).click();
   await page.getByRole("heading", { name: /One shared task list for you and your agents/ }).waitFor();
   assert.equal(await page.locator("html").evaluate(element => element.classList.contains("dark")), false);
   assert.equal(await page.locator("html").evaluate(element => getComputedStyle(element).colorScheme), "light");
-  assert.equal(await page.locator('meta[name="description"]').getAttribute("content"), "Slate is a shared task list for people and AI agents. Keep tasks, handoffs and results in one place, and turn repeatable processes into reusable templates.");
+  assert.equal(await page.locator('meta[name="description"]').getAttribute("content"), "wrkflw is a shared task list for people and AI agents. Keep tasks, handoffs and results in one place, and turn repeatable processes into reusable templates.");
   assert.equal(await page.locator(".landing-nav .brand-word").evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
   assert.match(await page.locator(".landing-nav .brand-mark").evaluate(element => getComputedStyle(element, "::before").backgroundImage), /^radial-gradient/);
   assert.equal(await page.locator(".landing-preview-summary > div").count(), 5);
@@ -422,7 +422,7 @@ test("public routes stay light and the app restores the saved dark theme", async
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
   assert.equal(await page.locator(".landing-preview-main").evaluate(element => element.scrollHeight <= element.clientHeight), true);
-  await page.getByRole("link", { name: "Open Slate", exact: true }).click();
+  await page.getByRole("link", { name: "Open wrkflw", exact: true }).click();
   await page.getByRole("heading", { name: "All tasks", exact: true }).waitFor();
   assert.equal(await page.locator("html").evaluate(element => element.classList.contains("dark")), true);
   assert.deepEqual(pageErrors, []);
@@ -435,7 +435,7 @@ test("registering a new account cannot reuse the previous account cache", async 
     window.history.pushState({}, "", "/early-access");
     window.dispatchEvent(new PopStateEvent("popstate"));
   });
-  await page.getByRole("heading", { name: "Join Slate." }).waitFor();
+  await page.getByRole("heading", { name: "Join wrkflw." }).waitFor();
   await page.getByLabel("Display name").fill("New Owner");
   await page.getByLabel("Email").fill("new-owner@example.com");
   await page.getByLabel("Password").fill("new-owner-password");
@@ -540,7 +540,7 @@ test("task creation respects every column and queues every agent assignment", as
         await dialog.getByRole("button", { name: "Assign to" }).click();
         await page.getByRole("menuitemradio", { name: /@research_agent/i }).click();
       } else {
-        assert.match(await dialog.getByRole("button", { name: "Assign to" }).textContent(), /@owain/i);
+        assert.match(await dialog.getByRole("button", { name: "Assign to" }).textContent(), /@abdoullah/i);
       }
       if (!assigned && column.status === "working") {
         await dialog.getByRole("button", { name: "P2 priority" }).click();
@@ -696,7 +696,7 @@ test("template limits prevent hidden or permanently partial workflow tasks", asy
     steps: Array.from({ length: 51 }, (_, index) => ({ id: `step-${index}`, phaseId: "phase", title: `Step ${index}`, executor: "Human", instruction: "" })),
   };
   await page.goto(origin);
-  await page.evaluate(template => localStorage.setItem("slate:process-templates:owner", JSON.stringify([template])), oversized);
+  await page.evaluate(template => localStorage.setItem("wrkflw:process-templates:owner", JSON.stringify([template])), oversized);
   await page.goto(`${origin}/app/templates`);
   const oversizedRow = page.locator(".template-list-row").filter({ hasText: "Oversized process" });
   await oversizedRow.getByText("Templates can contain up to 50 subtasks.").waitFor();
@@ -708,7 +708,7 @@ test("template limits prevent hidden or permanently partial workflow tasks", asy
   await editor.getByRole("button", { name: "Cancel" }).click();
 
   const longInstructions = { ...oversized, id: "long-instructions", name: "Long instructions", steps: [{ id: "step", phaseId: "phase", title: "Draft", executor: "Human", instruction: "x".repeat(17_000) }] };
-  await page.evaluate(template => localStorage.setItem("slate:process-templates:owner", JSON.stringify([template])), longInstructions);
+  await page.evaluate(template => localStorage.setItem("wrkflw:process-templates:owner", JSON.stringify([template])), longInstructions);
   await page.reload();
   const longRow = page.locator(".template-list-row").filter({ hasText: "Long instructions" });
   await longRow.getByText("Subtask instructions are too long to create a task.").waitFor();
@@ -719,7 +719,7 @@ test("template limits prevent hidden or permanently partial workflow tasks", asy
 
   const storedPrefix = "Phase: Plan\nAssigned to: human\n\n";
   const exactStoredLimit = { ...oversized, id: "exact-stored-limit", name: "Exact stored limit", steps: [{ id: "step", phaseId: "phase", title: "Draft", executor: "human", instruction: "x".repeat(16 * 1024 - Buffer.byteLength(storedPrefix)) }] };
-  await page.evaluate(template => localStorage.setItem("slate:process-templates:owner", JSON.stringify([template])), exactStoredLimit);
+  await page.evaluate(template => localStorage.setItem("wrkflw:process-templates:owner", JSON.stringify([template])), exactStoredLimit);
   await page.reload();
   const exactRow = page.locator(".template-list-row").filter({ hasText: "Exact stored limit" });
   await exactRow.getByText("Subtask instructions are too long to create a task.").waitFor();
@@ -738,7 +738,7 @@ test("template limits prevent hidden or permanently partial workflow tasks", asy
     brief: "",
     listId: "list-product",
   };
-  await page.evaluate(attempt => localStorage.setItem("slate:process-attempt:owner:short-agent-handle", JSON.stringify(attempt)), validRestoredAttempt);
+  await page.evaluate(attempt => localStorage.setItem("wrkflw:process-attempt:owner:short-agent-handle", JSON.stringify(attempt)), validRestoredAttempt);
   await page.reload();
   const restoredDialog = page.getByRole("dialog", { name: "Start process" });
   await restoredDialog.waitFor();
@@ -761,7 +761,7 @@ test("template limits prevent hidden or permanently partial workflow tasks", asy
   await page.evaluate(() => {
     const setItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function(key, value) {
-      if (String(key).startsWith("slate:process-")) throw new DOMException("Quota exceeded", "QuotaExceededError");
+      if (String(key).startsWith("wrkflw:process-")) throw new DOMException("Quota exceeded", "QuotaExceededError");
       return setItem.call(this, key, value);
     };
   });
@@ -776,7 +776,7 @@ test("template limits prevent hidden or permanently partial workflow tasks", asy
   await page.locator(".template-list-row").filter({ hasText: "In-memory process" }).waitFor();
   await page.locator(".template-list-row").filter({ hasText: "In-memory process" }).getByRole("button", { name: "Create From Template" }).click();
   const blockedCreate = page.getByRole("dialog", { name: "Start process" });
-  await blockedCreate.getByRole("alert").getByText("Slate could not save a safe retry key in this browser. No task was created.").waitFor();
+  await blockedCreate.getByRole("alert").getByText("wrkflw could not save a safe retry key in this browser. No task was created.").waitFor();
   assert.equal(state.tasks.some(task => task.title === "Cannot persist retry key"), false);
   assert.deepEqual(pageErrors, []);
 });
@@ -912,7 +912,7 @@ test("template deletion confirms, selects a neighbour, and leaves generated task
 
 test("valid legacy templates survive malformed siblings and migrate stable step IDs", async t => {
   const { page, state, origin, pageErrors } = await startApp(t);
-  await page.evaluate(() => localStorage.setItem("slate:process-templates:owner", JSON.stringify([
+  await page.evaluate(() => localStorage.setItem("wrkflw:process-templates:owner", JSON.stringify([
     { id: "youtube-weekly", name: "Overwritten built-in", summary: "Wrong", taskPrefix: "Wrong", phases: [{ id: "wrong", name: "Wrong" }], steps: [{ phaseId: "wrong", title: "Wrong", executor: "Human", instruction: "Wrong" }] },
     { id: "legacy-podcast", name: "Legacy podcast", summary: "A valid old template", taskPrefix: "Run", phases: ["Draft"], steps: [{ phase: "Draft", title: "Write the outline", executor: "Human", instruction: "Start with the promise." }] },
     { id: "long-step-id", name: "Long step ID", summary: "A recoverable template", taskPrefix: "Run", phases: [{ id: "phase", name: "Draft" }], steps: [{ id: "x".repeat(300), phaseId: "phase", title: "Write the outline", executor: "Human", instruction: "Start with the promise." }] },
@@ -925,7 +925,7 @@ test("valid legacy templates survive malformed siblings and migrate stable step 
   assert.equal(await page.getByText("Overwritten built-in", { exact: true }).count(), 0);
   assert.equal(await page.getByText("Blank step", { exact: true }).count(), 0);
   assert.equal(await page.getByText("Broken template", { exact: true }).count(), 0);
-  const firstStored = await page.evaluate(() => JSON.parse(localStorage.getItem("slate:process-templates:owner")));
+  const firstStored = await page.evaluate(() => JSON.parse(localStorage.getItem("wrkflw:process-templates:owner")));
   assert.equal(firstStored.length, 2);
   const migratedStepId = firstStored.find(template => template.id === "legacy-podcast").steps[0].id;
   assert.match(migratedStepId, /^legacy-podcast-step-/);
@@ -933,7 +933,7 @@ test("valid legacy templates survive malformed siblings and migrate stable step 
   assert.equal(firstStored.find(template => template.id === "legacy-podcast").taskPrefix, "Legacy podcast");
   assert.equal(firstStored.find(template => template.id === "long-step-id").steps[0].id, "step-1");
   await page.reload();
-  const reloaded = await page.evaluate(() => JSON.parse(localStorage.getItem("slate:process-templates:owner")));
+  const reloaded = await page.evaluate(() => JSON.parse(localStorage.getItem("wrkflw:process-templates:owner")));
   assert.equal(reloaded.find(template => template.id === "legacy-podcast").steps[0].id, migratedStepId);
   assert.equal(reloaded.find(template => template.id === "long-step-id").steps[0].id, "step-1");
   await page.locator(".template-list-row").filter({ hasText: "Legacy podcast" }).getByRole("button", { name: "Create From Template" }).click();
@@ -954,10 +954,10 @@ test("uncertain parent and subtask responses are retry-safe", async t => {
   assert.equal(state.tasks.filter(task => task.title === "Lost parent response").length, 1);
   const lostParent = state.tasks.find(task => task.title === "Lost parent response");
   const parentRequests = state.idempotencyRequests.filter(item => item.path === "/api/v1/lists/list-product/tasks");
-  const [firstAttemptKey] = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("slate:process-attempt:owner:")));
+  const [firstAttemptKey] = await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("wrkflw:process-attempt:owner:")));
   assert.ok(firstAttemptKey);
-  const secondAttemptKey = "slate:process-attempt:owner:other-tab";
-  const expiredAttemptKey = "slate:process-attempt:owner:expired";
+  const secondAttemptKey = "wrkflw:process-attempt:owner:other-tab";
+  const expiredAttemptKey = "wrkflw:process-attempt:owner:expired";
   await page.evaluate(({ firstAttemptKey, secondAttemptKey, expiredAttemptKey, lostParentId }) => {
     const otherAttempt = JSON.parse(localStorage.getItem(firstAttemptKey));
     otherAttempt.id = "other-tab";
@@ -985,7 +985,7 @@ test("uncertain parent and subtask responses are retry-safe", async t => {
   assert.equal(state.tasks.filter(task => task.title === parent.title).length, 1);
   assert.equal(state.subtasks.filter(task => task.parentTaskId === parent.id).length, 2);
   assert.equal(state.idempotencyRequests.filter(item => item.path === "/api/v1/lists/list-product/tasks")[1].key, parentRequests[0].key);
-  assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("slate:process-attempt:owner:"))), [secondAttemptKey]);
+  assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("wrkflw:process-attempt:owner:"))), [secondAttemptKey]);
 
   await page.goto(`${origin}/app/templates`);
   dialog = page.getByRole("dialog", { name: "Start process" });
@@ -994,7 +994,7 @@ test("uncertain parent and subtask responses are retry-safe", async t => {
   page.once("dialog", confirmation => confirmation.accept());
   await dialog.getByRole("button", { name: "Discard attempt" }).click();
   await dialog.waitFor({ state: "detached" });
-  assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("slate:process-attempt:owner:"))), []);
+  assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("wrkflw:process-attempt:owner:"))), []);
 
   await retryRow.getByRole("button", { name: "Edit" }).click();
   const retryEditor = page.getByRole("dialog", { name: "Edit template" });
@@ -1007,7 +1007,7 @@ test("uncertain parent and subtask responses are retry-safe", async t => {
   const partialParent = state.tasks.find(task => task.title === "Lost subtask response");
   assert.equal(state.subtasks.filter(task => task.parentTaskId === partialParent.id).length, 2);
   const savedProgress = await page.evaluate(() => {
-    const key = Object.keys(localStorage).find(item => item.startsWith("slate:process-attempt:owner:"));
+    const key = Object.keys(localStorage).find(item => item.startsWith("wrkflw:process-attempt:owner:"));
     return JSON.parse(localStorage.getItem(key));
   });
   assert.equal(savedProgress.parentTaskId, partialParent.id);
@@ -1140,8 +1140,8 @@ test("task detail edits, subtasks, and conversation entries use the existing API
   await page.getByText("The interface is ready for review.", { exact: true }).waitFor();
   assert.match(await page.getByRole("button", { name: "Assign to" }).textContent(), /@research_agent/i);
   await page.getByRole("button", { name: "Assign to" }).click();
-  await page.getByRole("menuitemradio", { name: /@owain/i }).click();
-  assert.match(await page.getByRole("button", { name: "Assign to" }).textContent(), /@owain/i);
+  await page.getByRole("menuitemradio", { name: /@abdoullah/i }).click();
+  assert.match(await page.getByRole("button", { name: "Assign to" }).textContent(), /@abdoullah/i);
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.getByRole("region", { name: "Task detail" }).waitFor({ state: "detached" });
   assert.equal(state.tasks[0].title, "Publish the React migration story");
@@ -1305,17 +1305,17 @@ test("lists, inbox, agents, and settings are complete React routes", async t => 
   await page.goto(`${origin}/app/agents`);
   await page.getByText("Research agent", { exact: true }).waitFor();
   await page.goto(`${origin}/app/agents/new`);
-  await page.getByLabel("Name").fill("Owain");
-  await page.getByText("Mentioned as @owain_2.", { exact: false }).waitFor();
+  await page.getByLabel("Name").fill("Abdoullah");
+  await page.getByText("Mentioned as @abdoullah_2.", { exact: false }).waitFor();
   await page.getByRole("button", { name: "Create agent" }).click();
-  await page.getByText("Agent created · @owain_2", { exact: true }).waitFor();
+  await page.getByText("Agent created · @abdoullah_2", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Account menu" }).click();
   await page.getByRole("menuitem", { name: "Settings" }).click();
   await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
   await page.getByRole("tab", { name: "API access" }).click();
   await page.getByPlaceholder("For example, laptop CLI").fill("Laptop CLI");
   await page.getByRole("button", { name: "Create token" }).click();
-  await page.getByText("slate_personal_one_time_secret").waitFor();
+  await page.getByText("wrkflw_personal_one_time_secret").waitFor();
 });
 
 test("lists keep their chosen color and sidebar order", async t => {

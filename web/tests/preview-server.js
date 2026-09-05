@@ -5,7 +5,7 @@ const path = require("node:path");
 const dist = path.resolve(__dirname, "../../server/internal/web/dist");
 const lists = [
   { id: "inbox", name: "Inbox", goal: "Capture now", isInbox: true, openCount: 2 },
-  { id: "product", name: "Product", goal: "Make Slate feel inevitable", isInbox: false, openCount: 5 },
+  { id: "product", name: "Product", goal: "Make wrkflw feel inevitable", isInbox: false, openCount: 5 },
   { id: "company", name: "Company", goal: "Build a durable business", isInbox: false, openCount: 3 },
   { id: "writing", name: "Writing", goal: "Publish ideas worth keeping", isInbox: false, openCount: 4 },
 ];
@@ -35,8 +35,8 @@ async function input(request) { let body = ""; for await (const chunk of request
 
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
-  if (url.pathname === "/capture.html") return send(response, `<!doctype html><html><head><meta charset="utf-8"><title>Slate capture</title><style>*{box-sizing:border-box}html,body{width:1706px;height:998px;margin:0;overflow:hidden;background:#fafafa}iframe{display:block;width:1846px;height:1080px;border:0;transform:scale(.92416);transform-origin:top left}</style></head><body><iframe src="/app/tasks" title="Slate"></iframe></body></html>`, 200, "text/html");
-  if (url.pathname === "/api/v1/me" && request.method === "GET") return send(response, { authenticated: true, user: { id: "owner", email: "owain@slate.do", displayName: "Owain Lewis", theme: "light", entitlement: { plan: "pro", limits: { lists: 45, agents: 5, apiTokens: 10 } } } });
+  if (url.pathname === "/capture.html") return send(response, `<!doctype html><html><head><meta charset="utf-8"><title>wrkflw capture</title><style>*{box-sizing:border-box}html,body{width:1706px;height:998px;margin:0;overflow:hidden;background:#fafafa}iframe{display:block;width:1846px;height:1080px;border:0;transform:scale(.92416);transform-origin:top left}</style></head><body><iframe src="/app/tasks" title="wrkflw"></iframe></body></html>`, 200, "text/html");
+  if (url.pathname === "/api/v1/me" && request.method === "GET") return send(response, { authenticated: true, user: { id: "owner", email: "abdoullahaljersi@gmail.com", displayName: "Abdoullah Ndao", theme: "light", entitlement: { plan: "pro", limits: { lists: 45, agents: 5, apiTokens: 10 } } } });
   if (url.pathname === "/api/v1/lists" && request.method === "GET") return send(response, { lists });
   if (url.pathname === "/api/v1/agents" && request.method === "GET") return send(response, { agents, maxAgents: 5 });
   if (url.pathname === "/api/v1/stats/summary" && request.method === "GET") return send(response, { activeTasks: 7, inProgress: 2, inReview: 2, completed24h: 2, runs24h: 2 });
@@ -57,7 +57,7 @@ const server = http.createServer(async (request, response) => {
   if (taskMatch && request.method === "DELETE") { const index = tasks.findIndex(item => item.id === taskMatch[1]); if (index >= 0) tasks.splice(index, 1); return send(response, {}); }
   const entryMatch = url.pathname.match(/^\/api\/v1\/tasks\/([^/]+)\/entries$/);
   if (entryMatch && request.method === "GET") return send(response, { entries: entries[entryMatch[1]] || [] });
-  if (entryMatch && request.method === "POST") { const data = await input(request); const entry = { id: `entry-${Date.now()}`, ...data, authorName: "Owain Lewis", createdAt: new Date().toISOString() }; entries[entryMatch[1]] = [...(entries[entryMatch[1]] || []), entry]; return send(response, entry, 201); }
+  if (entryMatch && request.method === "POST") { const data = await input(request); const entry = { id: `entry-${Date.now()}`, ...data, authorName: "Abdoullah Ndao", createdAt: new Date().toISOString() }; entries[entryMatch[1]] = [...(entries[entryMatch[1]] || []), entry]; return send(response, entry, 201); }
   if (url.pathname.match(/\/subtasks$/)) return request.method === "GET" ? send(response, { tasks: [] }) : send(response, { id: `sub-${Date.now()}`, ...(await input(request)), status: "new" }, 201);
   const agentMatch = url.pathname.match(/^\/api\/v1\/agents\/([^/]+)$/);
   if (agentMatch) { const agent = agents.find(item => item.id === agentMatch[1]); const assigned = tasks.filter(task => task.assigneeAgentId === agent?.id); return send(response, { agent, work: { ready: assigned.filter(task => task.status === "queued"), working: assigned.filter(task => task.status === "working"), review: assigned.filter(task => task.status === "needs_review"), recentlyCompleted: assigned.filter(task => task.status === "done"), totals: agent?.workCounts || {} } }); }
@@ -69,5 +69,5 @@ const server = http.createServer(async (request, response) => {
   return send(response, fs.readFileSync(target), 200, type);
 });
 
-const port = Number(process.env.SLATE_PREVIEW_PORT || 4173);
-server.listen(port, "127.0.0.1", () => console.log(`Slate preview: http://127.0.0.1:${port}/app/tasks`));
+const port = Number(process.env.WRKFLW_PREVIEW_PORT || 4173);
+server.listen(port, "127.0.0.1", () => console.log(`wrkflw preview: http://127.0.0.1:${port}/app/tasks`));
