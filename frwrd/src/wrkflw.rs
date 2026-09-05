@@ -74,13 +74,7 @@ impl Wrkflw {
 
     /// Mirrors an accepted inbound message into the thread's control-plane
     /// task, creating the task on the thread's first message.
-    pub async fn mirror_inbound(
-        &self,
-        channel: &str,
-        event_id: &str,
-        thread: &str,
-        text: &str,
-    ) {
+    pub async fn mirror_inbound(&self, channel: &str, event_id: &str, thread: &str, text: &str) {
         let key = thread_key(channel, thread);
         let task_id = self.task_for(&key);
         let Some(task_id) = task_id else {
@@ -90,7 +84,11 @@ impl Wrkflw {
             return;
         };
         if let Err(error) = self
-            .create_entry(&task_id, text.trim(), &format!("frwrd:{channel}:{event_id}:in"))
+            .create_entry(
+                &task_id,
+                text.trim(),
+                &format!("frwrd:{channel}:{event_id}:in"),
+            )
             .await
         {
             warn!("wrkflw mirror: inbound entry for {thread:?} failed: {error:#}");
@@ -106,7 +104,11 @@ impl Wrkflw {
             return;
         };
         if let Err(error) = self
-            .create_entry(&task_id, text.trim(), &format!("frwrd:{channel}:{inbound_id}:out"))
+            .create_entry(
+                &task_id,
+                text.trim(),
+                &format!("frwrd:{channel}:{inbound_id}:out"),
+            )
             .await
         {
             warn!("wrkflw mirror: reply entry for {thread:?} failed: {error:#}");
@@ -123,7 +125,8 @@ impl Wrkflw {
         let trimmed = text.trim();
         let title = first_line(trimmed);
         let description = truncate_bytes(trimmed, TASK_TEXT_BYTES);
-        let idempotency_key = truncate_bytes(&format!("frwrd:task:{event_id}"), IDEMPOTENCY_KEY_BYTES);
+        let idempotency_key =
+            truncate_bytes(&format!("frwrd:task:{event_id}"), IDEMPOTENCY_KEY_BYTES);
         let task = self
             .create_inbox_task(&title, &description, &idempotency_key)
             .await?;
