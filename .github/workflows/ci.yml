@@ -18,16 +18,16 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: slate_test
+          POSTGRES_DB: wrkflw_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d slate_test"
+          --health-cmd "pg_isready -U postgres -d wrkflw_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 12
     env:
-      SLATE_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/slate_test?sslmode=disable
+      WRKFLW_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/wrkflw_test?sslmode=disable
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
