@@ -14,8 +14,19 @@ import { api } from "@/lib/api"
 import { agentIDForAssignee, assigneeForTask, type AssigneeKey } from "@/lib/assignees"
 import { taskListName, workspaceSummaryQueryKey, type List, type Task, type TaskStatus } from "@/lib/types"
 
+export function BrandMark() {
+  return (
+    <svg className="brand-logo" viewBox="0 0 36 24" aria-hidden="true" focusable="false">
+      <g fill="currentColor">
+        <rect x="4" y="2" width="17" height="11" rx="3.5" transform="skewX(-12) translate(1.2 0)" />
+        <rect x="15" y="11" width="17" height="11" rx="3.5" transform="skewX(-12) translate(3.1 0)" />
+      </g>
+    </svg>
+  )
+}
+
 export function Brand({ onClick }: { onClick?: () => void }) {
-  return <button type="button" className="brand-mark" onClick={onClick} aria-label="wrkflw home"><span className="brand-word">wrkflw</span></button>
+  return <button type="button" className="brand-mark" onClick={onClick} aria-label="wrkflw home"><BrandMark /><span className="brand-word">wrkflw</span></button>
 }
 
 function NavigationLink({ to, icon: Icon, children, count, id }: { to: string; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode; count?: number; id?: string }) {

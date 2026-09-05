@@ -272,7 +272,7 @@ async function startApp(t, viewport = { width: 1440, height: 960 }, options = {}
     if (url.pathname.startsWith("/api/v1/auth/")) return json(response, { message: "Done" });
     if (url.pathname.startsWith("/assets/")) return file(response, url.pathname.slice(1), url.pathname.endsWith(".css") ? "text/css" : url.pathname.endsWith(".js") ? "text/javascript" : "font/woff2");
     const publicFile = url.pathname.slice(1);
-    if (["favicon.svg", "landing-stones.jpg", "landing-slabs.jpg", "app-lists.jpg", "app-flow.jpg", "cli.html"].includes(publicFile)) return file(response, publicFile, publicFile.endsWith(".svg") ? "image/svg+xml" : publicFile.endsWith(".html") ? "text/html" : "image/jpeg");
+    if (["favicon.svg", "logo.svg", "landing-stones.jpg", "landing-slabs.jpg", "app-lists.jpg", "app-flow.jpg", "cli.html"].includes(publicFile)) return file(response, publicFile, publicFile.endsWith(".svg") ? "image/svg+xml" : publicFile.endsWith(".html") ? "text/html" : "image/jpeg");
     if (request.method === "GET") return file(response, "index.html", "text/html");
     return json(response, { error: "not found" }, 404);
   });
@@ -384,6 +384,7 @@ test("wordmark and typography use one neutral Inter system", async t => {
   const { page, origin, pageErrors } = await startApp(t);
   const appBrand = page.locator(".brand-mark").first();
   assert.equal(await appBrand.locator(".brand-word").innerText(), "wrkflw");
+  assert.equal(await appBrand.locator(".brand-logo").count(), 1);
   assert.equal(await appBrand.locator(".brand-suffix").count(), 0);
   assert.equal(await appBrand.evaluate(element => getComputedStyle(element).color), await appBrand.locator(".brand-word").evaluate(element => getComputedStyle(element).color));
   const appHeadingFamily = await page.locator(".page-heading h1").evaluate(element => getComputedStyle(element).fontFamily);
@@ -392,6 +393,7 @@ test("wordmark and typography use one neutral Inter system", async t => {
   await page.locator(".hero h1").waitFor();
   const landingBrand = page.locator(".brand-mark").first();
   assert.equal(await landingBrand.locator(".brand-word").innerText(), "wrkflw");
+  assert.equal(await landingBrand.locator(".brand-logo").count(), 1);
   assert.equal(await landingBrand.locator(".brand-suffix").count(), 0);
   assert.equal(await landingBrand.evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
   const landingFamilies = await page.locator(".hero h1, .landing-section h2, .landing-preview-main > header h3").evaluateAll(elements => elements.map(element => getComputedStyle(element).fontFamily));
@@ -416,7 +418,8 @@ test("public routes stay light and the app restores the saved dark theme", async
   assert.equal(await page.locator("html").evaluate(element => getComputedStyle(element).colorScheme), "light");
   assert.equal(await page.locator('meta[name="description"]').getAttribute("content"), "wrkflw is a shared task list for people and AI agents. Keep tasks, handoffs and results in one place, and turn repeatable processes into reusable templates.");
   assert.equal(await page.locator(".landing-nav .brand-word").evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
-  assert.match(await page.locator(".landing-nav .brand-mark").evaluate(element => getComputedStyle(element, "::before").backgroundImage), /^radial-gradient/);
+  assert.equal(await page.locator(".landing-nav .brand-mark .brand-logo").count(), 1);
+  assert.equal(await page.locator(".landing-preview-brand .brand-logo").count(), 1);
   assert.equal(await page.locator(".landing-preview-summary > div").count(), 5);
   assert.equal(await page.locator(".landing-preview-priority").count(), 1);
   assert.equal(await page.getByText("Any agent", { exact: false }).count(), 0);

@@ -2,7 +2,7 @@ import * as React from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowRight, CheckCircle2, Flag, ListFilter } from "lucide-react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
-import { Brand } from "@/components/shell"
+import { Brand, BrandMark } from "@/components/shell"
 import { Button } from "@/components/ui/button"
 import { Input, Label, Textarea } from "@/components/ui/field"
 import { useSession } from "@/app-context"
@@ -44,7 +44,7 @@ function LandingProductPreview() {
   return (
     <div className="landing-preview" aria-hidden="true">
       <aside className="landing-preview-sidebar">
-        <div className="landing-preview-brand"><i /><strong>wrkflw</strong></div>
+        <div className="landing-preview-brand"><BrandMark /><strong>wrkflw</strong></div>
         <div className="landing-preview-new"><b>＋</b><strong>New task</strong><kbd>C</kbd></div>
         <div className="landing-preview-nav">
           <span>▱ <b>Inbox</b><small>2</small></span>
