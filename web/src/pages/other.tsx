@@ -2,6 +2,7 @@ import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertCircle, Archive, Bot, CheckCircle2, ChevronLeft, Circle, Clipboard, Clock3, Copy, Inbox as InboxIcon, LoaderCircle, Moon, Play, Plus, RefreshCw, Server, Settings, Sun, Workflow } from "lucide-react"
 import { Link, NavLink, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom"
+import QRCode from "react-qr-code"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input, Label, Select, Textarea } from "@/components/ui/field"
@@ -30,12 +31,13 @@ const settingsPages = [
   { id: "profile", label: "Profile", title: "Profile" },
   { id: "preferences", label: "Preferences", title: "Preferences" },
   { id: "api", label: "API access", title: "API access" },
+  { id: "messaging", label: "Messaging", title: "Messaging" },
 ]
 
 export function SettingsPage() {
   const { page = "profile" } = useParams()
   const current = settingsPages.find(item => item.id === page) || settingsPages[0]
-  return <div className="page-wrap"><PageHeader title="Settings" /><nav className="settings-tabs" aria-label="Settings sections" role="tablist">{settingsPages.map(item => <NavLink key={item.id} to={`/app/settings/${item.id}`} className={({ isActive }) => `settings-tab ${isActive ? "active" : ""}`} role="tab">{item.label}</NavLink>)}</nav><div className="mb-5"><h2 className="text-lg font-semibold">{current.title}</h2></div>{current.id === "profile" ? <ProfileSettings /> : current.id === "preferences" ? <PreferenceSettings /> : <APISettings />}</div>
+  return <div className="page-wrap"><PageHeader title="Settings" /><nav className="settings-tabs" aria-label="Settings sections" role="tablist">{settingsPages.map(item => <NavLink key={item.id} to={`/app/settings/${item.id}`} className={({ isActive }) => `settings-tab ${isActive ? "active" : ""}`} role="tab">{item.label}</NavLink>)}</nav><div className="mb-5"><h2 className="text-lg font-semibold">{current.title}</h2></div>{current.id === "profile" ? <ProfileSettings /> : current.id === "preferences" ? <PreferenceSettings /> : current.id === "messaging" ? <MessagingSettings /> : <APISettings />}</div>
 }
 
 function ProfileSettings() {
@@ -53,6 +55,14 @@ function PreferenceSettings() {
   const theme = me.theme === "light" ? "light" : "dark"
   const update = useMutation({ mutationFn: (value: "light" | "dark") => api.patch<User>("/api/v1/me", { theme: value }), onSuccess: (user, value) => { updateMe({ ...me, ...user, theme: value }); setNotice("Preference saved.") }, onError: error => setNotice(error instanceof Error ? error.message : "Could not save preference") })
   return <section className="settings-card surface-card"><div className="settings-row"><div className="settings-copy"><strong>Appearance</strong><span>wrkflw follows this choice on every screen.</span></div><div className="view-toggle w-fit" role="group" aria-label="Theme preference"><button type="button" className={theme === "light" ? "active" : ""} aria-pressed={theme === "light"} onClick={() => update.mutate("light")}><Sun className="size-3.5" />Light</button><button type="button" className={theme === "dark" ? "active" : ""} aria-pressed={theme === "dark"} onClick={() => update.mutate("dark")}><Moon className="size-3.5" />Dark</button></div></div>{notice && <p className={`status-message mt-3 ${update.isError ? "error" : ""}`}>{notice}</p>}</section>
+}
+
+function MessagingSettings() {
+  const [botName, setBotName] = React.useState("")
+  const handle = botName.trim().replace(/^@/, "")
+  const valid = /^[A-Za-z0-9_]{5,32}$/.test(handle)
+  const link = valid ? `https://t.me/${handle}` : ""
+  return <div className="max-w-[850px] space-y-5"><section><div className="mb-3"><h2 className="font-semibold">Telegram</h2><p className="mt-1 text-sm text-muted-foreground">Create a bot with @BotFather, type its username below, then scan the code with your phone to open the chat.</p></div><div className="surface-card p-4"><div><Label htmlFor="telegram-bot-name">Bot username</Label><Input id="telegram-bot-name" value={botName} onChange={event => setBotName(event.target.value)} placeholder="my_assistant_bot" autoComplete="off" /></div>{valid ? <div className="qr-connect"><div className="qr-frame"><QRCode value={link} size={180} aria-label={`QR code linking to ${link}`} /></div><div><strong>Scan to open the chat</strong><p className="mt-1 text-sm text-muted-foreground">Point your phone camera at the code, open <code>{link}</code>, and send the bot one message. Then add your numeric Telegram user ID to <code>telegram.allow_user_ids</code> in the gateway config and run <code>frwrd doctor</code>.</p></div></div> : <p className="mt-3 text-sm text-muted-foreground">Enter a valid bot username (5–32 letters, numbers or underscores) to generate the QR code.</p>}</div></section><section><div className="mb-3"><h2 className="font-semibold">iMessage and Slack</h2><p className="mt-1 text-sm text-muted-foreground">These channels cannot use QR pairing. iMessage works only on the Mac running the gateway with Full Disk Access granted. Slack connects through Socket Mode with an installed workspace app and an explicit user allowlist. See the gateway docs for both.</p></div></section></div>
 }
 
 interface APIToken { id: string; name: string }

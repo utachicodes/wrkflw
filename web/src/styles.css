@@ -640,6 +640,9 @@ a.bg-primary { color: var(--primary-foreground); }
 .settings-copy strong, .settings-copy span { display: block; }
 .settings-copy strong { font-size: .82rem; }
 .settings-copy span { margin-top: .25rem; color: var(--muted-foreground); font-size: .7rem; line-height: 1.5; }
+.qr-connect { display: flex; align-items: flex-start; gap: 1.25rem; margin-top: 1.25rem; }
+.qr-frame { flex: none; border: 1px solid var(--border); border-radius: .9rem; background: #fff; padding: .8rem; }
+.qr-frame svg { display: block; width: 180px; height: 180px; }
 .token-row, .agent-row, .inbox-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--border); padding: 1rem 1.1rem; }
 .token-row:last-child, .agent-row:last-child, .inbox-row:last-child { border-bottom: 0; }
 .agent-row { cursor: pointer; }
