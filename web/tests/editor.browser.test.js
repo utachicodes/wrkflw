@@ -383,13 +383,16 @@ test("workspace summary failure leaves the task board usable", async t => {
 test("wordmark and typography use one neutral Inter system", async t => {
   const { page, origin, pageErrors } = await startApp(t);
   const appBrand = page.locator(".brand-mark").first();
-  assert.equal(await appBrand.locator(".brand-suffix").evaluate(element => getComputedStyle(element).color), await appBrand.locator(".brand-word").evaluate(element => getComputedStyle(element).color));
+  assert.equal(await appBrand.locator(".brand-word").innerText(), "wrkflw");
+  assert.equal(await appBrand.locator(".brand-suffix").count(), 0);
+  assert.equal(await appBrand.evaluate(element => getComputedStyle(element).color), await appBrand.locator(".brand-word").evaluate(element => getComputedStyle(element).color));
   const appHeadingFamily = await page.locator(".page-heading h1").evaluate(element => getComputedStyle(element).fontFamily);
 
   await page.goto(`${origin}/`);
   await page.locator(".hero h1").waitFor();
   const landingBrand = page.locator(".brand-mark").first();
-  assert.equal(await landingBrand.locator(".brand-suffix").evaluate(element => getComputedStyle(element).color), await landingBrand.locator(".brand-word").evaluate(element => getComputedStyle(element).color));
+  assert.equal(await landingBrand.locator(".brand-word").innerText(), "wrkflw");
+  assert.equal(await landingBrand.locator(".brand-suffix").count(), 0);
   assert.equal(await landingBrand.evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
   const landingFamilies = await page.locator(".hero h1, .landing-section h2, .landing-preview-main > header h3").evaluateAll(elements => elements.map(element => getComputedStyle(element).fontFamily));
 
