@@ -20,17 +20,17 @@ RUN cd server && go mod download
 COPY server server
 COPY cli cli
 COPY --from=web-build /src/server/internal/web/dist ./server/internal/web/dist
-RUN cd server && CGO_ENABLED=0 GOOS=linux go build -o /out/slate ./cmd/slate
-RUN cd cli && CGO_ENABLED=0 GOOS=linux go build -o /out/slate-cli ./cmd/slate
+RUN cd server && CGO_ENABLED=0 GOOS=linux go build -o /out/wrkflw ./cmd/wrkflw
+RUN cd cli && CGO_ENABLED=0 GOOS=linux go build -o /out/wrkflw-cli ./cmd/wrkflw
 
 FROM gcr.io/distroless/static-debian12
 
 WORKDIR /app
-COPY --from=build /out/slate /app/slate
-COPY --from=build /out/slate-cli /app/slate-cli
+COPY --from=build /out/wrkflw /app/wrkflw
+COPY --from=build /out/wrkflw-cli /app/wrkflw-cli
 
 EXPOSE 8080
 USER nonroot:nonroot
 
-ENTRYPOINT ["/app/slate"]
+ENTRYPOINT ["/app/wrkflw"]
 CMD ["serve"]

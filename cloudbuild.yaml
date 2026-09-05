@@ -19,25 +19,25 @@ steps:
     args:
       - build
       - -t
-      - $_REGION-docker.pkg.dev/$PROJECT_ID/slate/slate:$COMMIT_SHA-$BUILD_ID
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/wrkflw/wrkflw:$COMMIT_SHA-$BUILD_ID
       - .
   - name: gcr.io/cloud-builders/docker
     args:
       - push
-      - $_REGION-docker.pkg.dev/$PROJECT_ID/slate/slate:$COMMIT_SHA-$BUILD_ID
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/wrkflw/wrkflw:$COMMIT_SHA-$BUILD_ID
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
     args:
       - -ceu
       - |
-        lock_uri="gs://${PROJECT_ID}_cloudbuild/deploy/slate.lock"
+        lock_uri="gs://${PROJECT_ID}_cloudbuild/deploy/wrkflw.lock"
         lock_generation=""
         job_created=0
         cleanup() {
           rc=$$?
           trap - EXIT INT TERM
           if [ "$$job_created" = 1 ]; then
-            gcloud run jobs delete "slate-migrate-$SHORT_SHA" --region "$_REGION" --quiet || true
+            gcloud run jobs delete "wrkflw-migrate-$SHORT_SHA" --region "$_REGION" --quiet || true
           fi
           if [ -n "$$lock_generation" ]; then
             gcloud storage rm "$$lock_uri" --if-generation-match="$$lock_generation" --quiet || true
@@ -47,19 +47,19 @@ steps:
         trap cleanup EXIT INT TERM
 
         while :; do
-          if printf '%s' "$BUILD_ID" | gcloud storage cp - "$$lock_uri" --if-generation-match=0 --quiet 2>/tmp/slate-lock-error; then
+          if printf '%s' "$BUILD_ID" | gcloud storage cp - "$$lock_uri" --if-generation-match=0 --quiet 2>/tmp/wrkflw-lock-error; then
             lock_generation="$$(gcloud storage objects describe "$$lock_uri" --format='value(generation)')"
             break
           fi
 
           if ! lock_details="$$(gcloud storage objects describe "$$lock_uri" --format='value(generation)' 2>/dev/null)"; then
-            if printf '%s' "$BUILD_ID" | gcloud storage cp - "$$lock_uri" --if-generation-match=0 --quiet 2>/tmp/slate-lock-error; then
+            if printf '%s' "$BUILD_ID" | gcloud storage cp - "$$lock_uri" --if-generation-match=0 --quiet 2>/tmp/wrkflw-lock-error; then
               lock_generation="$$(gcloud storage objects describe "$$lock_uri" --format='value(generation)')"
               break
             fi
             if ! lock_details="$$(gcloud storage objects describe "$$lock_uri" --format='value(generation)' 2>/dev/null)"; then
               echo "Unable to create or inspect the production deployment lock" >&2
-              grep . /tmp/slate-lock-error >&2 || true
+              grep . /tmp/wrkflw-lock-error >&2 || true
               exit 1
             fi
           fi
@@ -81,54 +81,54 @@ steps:
           sleep 10
         done
 
-        latest="$$(git ls-remote https://github.com/owainlewis/slate.do.git refs/heads/main | cut -f1)"
+        latest="$$(git ls-remote https://github.com/utachicodes/wrkflw.git refs/heads/main | cut -f1)"
         test "$$latest" = "$COMMIT_SHA" || {
           echo "Refusing to deploy stale build $COMMIT_SHA; main is $$latest" >&2
           exit 1
         }
 
-        image_tag="$_REGION-docker.pkg.dev/$PROJECT_ID/slate/slate:$COMMIT_SHA-$BUILD_ID"
+        image_tag="$_REGION-docker.pkg.dev/$PROJECT_ID/wrkflw/wrkflw:$COMMIT_SHA-$BUILD_ID"
         image="$$(gcloud artifacts docker images describe "$$image_tag" --format='value(image_summary.fully_qualified_digest)')"
         test -n "$$image"
-        web_service_account="slate-web@$PROJECT_ID.iam.gserviceaccount.com"
-        maintenance_service_account="slate-maintenance@$PROJECT_ID.iam.gserviceaccount.com"
-        scheduler_service_account="slate-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
-        runtime_secrets="DATABASE_URL=slate-database-url:latest,SESSION_SECRET=slate-session-secret:latest,RESEND_API_KEY=slate-resend-api-key:latest"
+        web_service_account="wrkflw-web@$PROJECT_ID.iam.gserviceaccount.com"
+        maintenance_service_account="wrkflw-maintenance@$PROJECT_ID.iam.gserviceaccount.com"
+        scheduler_service_account="wrkflw-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
+        runtime_secrets="DATABASE_URL=wrkflw-database-url:latest,SESSION_SECRET=wrkflw-session-secret:latest,RESEND_API_KEY=wrkflw-resend-api-key:latest"
         sh scripts/validate-capacity.sh "$_MAX_INSTANCES" "$_DB_MAX_CONNECTIONS" "$_DB_CONNECTION_ALLOWANCE" "$_DB_RESERVED_CONNECTIONS" "$_REQUEST_TIMEOUT_SECONDS"
-        runtime_env="COOKIE_SECURE=true,APP_BASE_URL=https://slate.do,RESEND_FROM=Slate <passwords@mail.slate.do>,APP_MAX_INSTANCES=$_MAX_INSTANCES,DB_MAX_CONNECTIONS=$_DB_MAX_CONNECTIONS,DB_CONNECTION_ALLOWANCE=$_DB_CONNECTION_ALLOWANCE,DB_RESERVED_CONNECTIONS=$_DB_RESERVED_CONNECTIONS,DB_ACQUIRE_TIMEOUT=$_DB_ACQUIRE_TIMEOUT,DB_STATEMENT_TIMEOUT=$_DB_STATEMENT_TIMEOUT,DB_IDLE_TRANSACTION_TIMEOUT=$_DB_IDLE_TRANSACTION_TIMEOUT,DB_MAX_CONNECTION_IDLE_TIME=$_DB_MAX_CONNECTION_IDLE_TIME,DB_MAX_CONNECTION_LIFETIME=$_DB_MAX_CONNECTION_LIFETIME,REQUEST_TIMEOUT=${_REQUEST_TIMEOUT_SECONDS}s,HTTP_IDLE_TIMEOUT=$_HTTP_IDLE_TIMEOUT"
-        existing_service="$$(gcloud run services list --region "$_REGION" --filter='metadata.name=slate' --format='value(metadata.name)')"
+        runtime_env="COOKIE_SECURE=true,APP_BASE_URL=https://wrkflw,RESEND_FROM=Wrkflw <passwords@mail.wrkflw>,APP_MAX_INSTANCES=$_MAX_INSTANCES,DB_MAX_CONNECTIONS=$_DB_MAX_CONNECTIONS,DB_CONNECTION_ALLOWANCE=$_DB_CONNECTION_ALLOWANCE,DB_RESERVED_CONNECTIONS=$_DB_RESERVED_CONNECTIONS,DB_ACQUIRE_TIMEOUT=$_DB_ACQUIRE_TIMEOUT,DB_STATEMENT_TIMEOUT=$_DB_STATEMENT_TIMEOUT,DB_IDLE_TRANSACTION_TIMEOUT=$_DB_IDLE_TRANSACTION_TIMEOUT,DB_MAX_CONNECTION_IDLE_TIME=$_DB_MAX_CONNECTION_IDLE_TIME,DB_MAX_CONNECTION_LIFETIME=$_DB_MAX_CONNECTION_LIFETIME,REQUEST_TIMEOUT=${_REQUEST_TIMEOUT_SECONDS}s,HTTP_IDLE_TIMEOUT=$_HTTP_IDLE_TIMEOUT"
+        existing_service="$$(gcloud run services list --region "$_REGION" --filter='metadata.name=wrkflw' --format='value(metadata.name)')"
         existing_env_names=""
-        if [ "$$existing_service" = slate ]; then
-          existing_env_names="$$(gcloud run services describe slate --region "$_REGION" --format='value(spec.template.spec.containers[0].env[].name)')"
+        if [ "$$existing_service" = wrkflw ]; then
+          existing_env_names="$$(gcloud run services describe wrkflw --region "$_REGION" --format='value(spec.template.spec.containers[0].env[].name)')"
         fi
-        invite_secret_state="$$(gcloud secrets versions describe latest --secret=slate-invite-code --format='value(state)' 2>/dev/null || true)"
+        invite_secret_state="$$(gcloud secrets versions describe latest --secret=wrkflw-invite-code --format='value(state)' 2>/dev/null || true)"
         if [ "$$invite_secret_state" = ENABLED ]; then
-          runtime_secrets="$$runtime_secrets,INVITE_CODE=slate-invite-code:latest"
+          runtime_secrets="$$runtime_secrets,INVITE_CODE=wrkflw-invite-code:latest"
         elif printf '%s' "$$existing_env_names" | tr ';' '\n' | grep -Fx INVITE_CODE >/dev/null; then
-          echo "The live service uses INVITE_CODE, but slate-invite-code:latest is not enabled or accessible" >&2
+          echo "The live service uses INVITE_CODE, but wrkflw-invite-code:latest is not enabled or accessible" >&2
           exit 1
         fi
-        gcloud run jobs deploy "slate-migrate-$SHORT_SHA" \
+        gcloud run jobs deploy "wrkflw-migrate-$SHORT_SHA" \
           --image "$$image" \
           --region "$_REGION" \
-          --command /app/slate \
+          --command /app/wrkflw \
           --args migrate \
           --service-account "$$maintenance_service_account" \
-          --set-cloudsql-instances "$PROJECT_ID:$_REGION:slate-postgres-ew1" \
-          --set-secrets DATABASE_URL=slate-database-url:latest \
+          --set-cloudsql-instances "$PROJECT_ID:$_REGION:wrkflw-postgres-ew1" \
+          --set-secrets DATABASE_URL=wrkflw-database-url:latest \
           --set-env-vars "APP_MAX_INSTANCES=1,DB_MAX_CONNECTIONS=1,DB_CONNECTION_ALLOWANCE=$_DB_CONNECTION_ALLOWANCE,DB_RESERVED_CONNECTIONS=$_DB_RESERVED_CONNECTIONS,DB_ACQUIRE_TIMEOUT=$_DB_ACQUIRE_TIMEOUT,DB_STATEMENT_TIMEOUT=$_DB_STATEMENT_TIMEOUT,DB_IDLE_TRANSACTION_TIMEOUT=$_DB_IDLE_TRANSACTION_TIMEOUT,DB_MAX_CONNECTION_IDLE_TIME=$_DB_MAX_CONNECTION_IDLE_TIME,DB_MAX_CONNECTION_LIFETIME=$_DB_MAX_CONNECTION_LIFETIME,REQUEST_TIMEOUT=${_REQUEST_TIMEOUT_SECONDS}s,HTTP_IDLE_TIMEOUT=$_HTTP_IDLE_TIMEOUT" \
           --max-retries 0 \
           --task-timeout 10m \
           --quiet
         job_created=1
-        effective_migration_identity="$$(gcloud run jobs describe "slate-migrate-$SHORT_SHA" --region "$_REGION" --format='value(spec.template.spec.template.spec.serviceAccountName)')"
+        effective_migration_identity="$$(gcloud run jobs describe "wrkflw-migrate-$SHORT_SHA" --region "$_REGION" --format='value(spec.template.spec.template.spec.serviceAccountName)')"
         test "$$effective_migration_identity" = "$$maintenance_service_account" || {
           echo "Expected migration identity $$maintenance_service_account, got $$effective_migration_identity" >&2
           exit 1
         }
-        gcloud run jobs execute "slate-migrate-$SHORT_SHA" --region "$_REGION" --wait --quiet
+        gcloud run jobs execute "wrkflw-migrate-$SHORT_SHA" --region "$_REGION" --wait --quiet
 
-        gcloud run deploy slate \
+        gcloud run deploy wrkflw \
           --image "$$image" \
           --region "$_REGION" \
           --platform managed \
@@ -139,24 +139,24 @@ steps:
           --max "$_MAX_INSTANCES" \
           --concurrency "$_CONCURRENCY" \
           --timeout "$$(( $_REQUEST_TIMEOUT_SECONDS + 5 ))s" \
-          --set-cloudsql-instances "$PROJECT_ID:$_REGION:slate-postgres-ew1" \
+          --set-cloudsql-instances "$PROJECT_ID:$_REGION:wrkflw-postgres-ew1" \
           --ingress all \
           --set-env-vars "$$runtime_env" \
           --set-secrets "$$runtime_secrets" \
           --quiet
 
-        deployed="$$(gcloud run services describe slate --region "$_REGION" --format='value(spec.template.spec.containers[0].image)')"
+        deployed="$$(gcloud run services describe wrkflw --region "$_REGION" --format='value(spec.template.spec.containers[0].image)')"
         expected="$$image"
         test "$$deployed" = "$$expected" || {
           echo "Expected deployed image $$expected, got $$deployed" >&2
           exit 1
         }
-        effective_max="$$(gcloud run services describe slate --region "$_REGION" --format="value(metadata.annotations.'run.googleapis.com/maxScale')")"
+        effective_max="$$(gcloud run services describe wrkflw --region "$_REGION" --format="value(metadata.annotations.'run.googleapis.com/maxScale')")"
         test "$$effective_max" = "$_MAX_INSTANCES" || {
           echo "Expected maximum instances $_MAX_INSTANCES, got $$effective_max" >&2
           exit 1
         }
-        effective_web_identity="$$(gcloud run services describe slate --region "$_REGION" --format='value(spec.template.spec.serviceAccountName)')"
+        effective_web_identity="$$(gcloud run services describe wrkflw --region "$_REGION" --format='value(spec.template.spec.serviceAccountName)')"
         test "$$effective_web_identity" = "$$web_service_account" || {
           echo "Expected web identity $$web_service_account, got $$effective_web_identity" >&2
           exit 1
@@ -171,54 +171,54 @@ steps:
           "$$(( $_DB_CONNECTION_ALLOWANCE - $_DB_RESERVED_CONNECTIONS ))" "$_DB_RESERVED_CONNECTIONS" "$_CONCURRENCY"
         REQUESTS=64 CONCURRENCY=16 sh scripts/check-capacity.sh "$_HEALTH_URL"
 
-        gcloud run jobs deploy slate-cleanup \
+        gcloud run jobs deploy wrkflw-cleanup \
           --image "$$image" \
           --region "$_REGION" \
-          --command /app/slate \
+          --command /app/wrkflw \
           --args cleanup \
           --service-account "$$maintenance_service_account" \
-          --set-cloudsql-instances "$PROJECT_ID:$_REGION:slate-postgres-ew1" \
-          --set-secrets DATABASE_URL=slate-database-url:latest \
+          --set-cloudsql-instances "$PROJECT_ID:$_REGION:wrkflw-postgres-ew1" \
+          --set-secrets DATABASE_URL=wrkflw-database-url:latest \
           --set-env-vars "APP_MAX_INSTANCES=1,DB_MAX_CONNECTIONS=1,DB_CONNECTION_ALLOWANCE=$_DB_CONNECTION_ALLOWANCE,DB_RESERVED_CONNECTIONS=$_DB_RESERVED_CONNECTIONS,DB_ACQUIRE_TIMEOUT=$_DB_ACQUIRE_TIMEOUT,DB_STATEMENT_TIMEOUT=$_DB_STATEMENT_TIMEOUT,DB_IDLE_TRANSACTION_TIMEOUT=$_DB_IDLE_TRANSACTION_TIMEOUT,DB_MAX_CONNECTION_IDLE_TIME=$_DB_MAX_CONNECTION_IDLE_TIME,DB_MAX_CONNECTION_LIFETIME=$_DB_MAX_CONNECTION_LIFETIME,REQUEST_TIMEOUT=${_REQUEST_TIMEOUT_SECONDS}s,HTTP_IDLE_TIMEOUT=$_HTTP_IDLE_TIMEOUT" \
           --tasks 1 \
           --parallelism 1 \
           --max-retries 1 \
           --task-timeout 5m \
           --quiet
-        effective_cleanup_identity="$$(gcloud run jobs describe slate-cleanup --region "$_REGION" --format='value(spec.template.spec.template.spec.serviceAccountName)')"
+        effective_cleanup_identity="$$(gcloud run jobs describe wrkflw-cleanup --region "$_REGION" --format='value(spec.template.spec.template.spec.serviceAccountName)')"
         test "$$effective_cleanup_identity" = "$$maintenance_service_account" || {
           echo "Expected cleanup identity $$maintenance_service_account, got $$effective_cleanup_identity" >&2
           exit 1
         }
-        cleanup_uri="https://run.googleapis.com/v2/projects/$PROJECT_ID/locations/$_REGION/jobs/slate-cleanup:run"
-        gcloud run jobs add-iam-policy-binding slate-cleanup --region "$_REGION" \
+        cleanup_uri="https://run.googleapis.com/v2/projects/$PROJECT_ID/locations/$_REGION/jobs/wrkflw-cleanup:run"
+        gcloud run jobs add-iam-policy-binding wrkflw-cleanup --region "$_REGION" \
           --member="serviceAccount:$$scheduler_service_account" --role=roles/run.invoker --quiet
-        if gcloud scheduler jobs describe slate-cleanup --location "$_REGION" >/dev/null 2>&1; then
-          gcloud scheduler jobs update http slate-cleanup \
+        if gcloud scheduler jobs describe wrkflw-cleanup --location "$_REGION" >/dev/null 2>&1; then
+          gcloud scheduler jobs update http wrkflw-cleanup \
             --location "$_REGION" --schedule "17 3 * * *" --time-zone "Etc/UTC" \
             --uri "$$cleanup_uri" --http-method POST \
             --oauth-service-account-email "$$scheduler_service_account" \
             --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform" \
             --attempt-deadline 300s --quiet
         else
-          gcloud scheduler jobs create http slate-cleanup \
+          gcloud scheduler jobs create http wrkflw-cleanup \
             --location "$_REGION" --schedule "17 3 * * *" --time-zone "Etc/UTC" \
             --uri "$$cleanup_uri" --http-method POST \
             --oauth-service-account-email "$$scheduler_service_account" \
             --oauth-token-scope "https://www.googleapis.com/auth/cloud-platform" \
             --attempt-deadline 300s --quiet
         fi
-        effective_scheduler_identity="$$(gcloud scheduler jobs describe slate-cleanup --location "$_REGION" --format='value(httpTarget.oauthToken.serviceAccountEmail)')"
+        effective_scheduler_identity="$$(gcloud scheduler jobs describe wrkflw-cleanup --location "$_REGION" --format='value(httpTarget.oauthToken.serviceAccountEmail)')"
         test "$$effective_scheduler_identity" = "$$scheduler_service_account" || {
           echo "Expected Scheduler identity $$scheduler_service_account, got $$effective_scheduler_identity" >&2
           exit 1
         }
 images:
-  - $_REGION-docker.pkg.dev/$PROJECT_ID/slate/slate:$COMMIT_SHA-$BUILD_ID
-serviceAccount: projects/$PROJECT_ID/serviceAccounts/slate-deploy@$PROJECT_ID.iam.gserviceaccount.com
+  - $_REGION-docker.pkg.dev/$PROJECT_ID/wrkflw/wrkflw:$COMMIT_SHA-$BUILD_ID
+serviceAccount: projects/$PROJECT_ID/serviceAccounts/wrkflw-deploy@$PROJECT_ID.iam.gserviceaccount.com
 substitutions:
   _REGION: europe-west1
-  _HEALTH_URL: https://slate.do/api/health
+  _HEALTH_URL: https://wrkflw/api/health
   _MAX_INSTANCES: '4'
   _DB_MAX_CONNECTIONS: '2'
   _DB_CONNECTION_ALLOWANCE: '25'
