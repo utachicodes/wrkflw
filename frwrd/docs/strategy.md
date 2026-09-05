@@ -1,0 +1,166 @@
+# frwrd Strategy
+
+!!! info "Strategy and shipped behavior"
+
+    This page describes durable product choices and possible future work. It is
+    not a list of shipped features. See the [documentation home](index.md) for
+    current behavior and the [GitHub releases](https://github.com/utachicodes/frwrd/releases)
+    for released versions.
+
+## The Bet
+
+The agent runtime is becoming the commodity layer.
+
+Claude Code, Codex, Cursor, AMP, Pi-style agents, in-house agents, and small
+open-source agents are all racing to own the same capabilities: reasoning,
+coding, file edits, shell commands, MCP, plugins, permissions, repo context, and
+task execution.
+
+frwrd should not compete there.
+
+frwrd should own the durable gateway layer: messages, routing, scheduling,
+history, security, and delivery. The user should own one portable assistant
+repository with identity, context, jobs, and optional project skills. The agent
+runtime should be replaceable.
+
+## Product Thesis
+
+frwrd is a personal assistant gateway, not an agent runtime.
+
+The gateway answers these questions:
+
+- Who is allowed to talk to the assistant?
+- Which conversation is this?
+- Where is the single configured assistant repository?
+- Which runtime should handle the work?
+- What should be sent back to the user?
+- What state should persist for next time?
+
+The backend agent answers a smaller question:
+
+- Given this message and assistant context, what work should be done and what
+  response should be sent back?
+
+That contract keeps the hard and fast-moving agent work inside products with
+large teams behind them, while frwrd owns the layer that makes the interaction a
+personal assistant.
+
+## What Personal Assistant Means
+
+This is not just a coding bot over iMessage.
+
+A personal assistant needs:
+
+- Durable user preferences.
+- Business and project context.
+- A memory model the user can inspect and correct.
+- Access to tools through the selected runtime.
+- Channel-aware replies.
+- A stable identity across backend changes.
+- Permission and routing rules that match the user's life.
+
+frwrd supports exactly one assistant. `frwrd init [path]` creates its user-owned,
+Git-versioned repository with `SOUL.md`, `context/`, and `jobs/`; the user may
+add project-scoped skills. One canonical root is configured; the other paths
+are derived. There are no assistant names, IDs, registries, or selection flows.
+This stays small, legible, and stable across backends and machines.
+
+## What The Gateway Owns
+
+- Channel polling and sending.
+- Allowlist and reply-loop filtering.
+- Conversation ids.
+- Backend session ids.
+- Assistant root loading and runtime instruction composition.
+- Job validation, scheduling, history, and delivery.
+- Runtime selection.
+- User-visible delivery.
+- The audit trail in plain files and JSON state.
+
+## What The Runtime Owns
+
+- Model behavior.
+- Coding workflow.
+- Tool execution.
+- MCP servers.
+- Plugins and skills.
+- Shell permissions.
+- Repo context.
+- Long-running task mechanics.
+
+The assistant repository owns `SOUL.md`, editable context, installed job
+runbooks, and optional project-scoped skills. The runtime owns skill discovery
+and execution, global skills, tools, MCP, permissions, and authentication. frwrd
+runtime state and secrets remain outside the repository.
+
+The gateway should not rebuild these unless there is no reliable backend
+contract for the job.
+
+## Backend Contract
+
+The backend seam should stay small:
+
+```text
+input:
+  user message
+  assistant context
+  resolved assistant, context, and jobs locations
+  conversation/session id if one exists
+  working directory
+  timeout
+
+output:
+  final reply
+  backend session id if created by the runtime
+```
+
+Claude Code, Codex, and Pi fit this shape:
+
+- Claude Code accepts a gateway-generated session id with `--session-id` and
+  resumes with `--resume`.
+- Codex creates its own thread id through `codex exec`; frwrd stores it and later
+  resumes with `codex exec resume`.
+- Pi reports a session id in JSON mode; frwrd stores it and resumes with
+  `--session`.
+
+The state store must therefore track backend-owned session ids, not just
+gateway-owned UUIDs.
+
+## Positioning
+
+Hermes and OpenClaw are useful comparisons, but the critique should be precise.
+
+Hermes is powerful because it builds a full agent runtime and memory system. The
+cost is complexity and a second agent layer between the user and the underlying
+model or tool runtime.
+
+frwrd takes the opposite bet. It delegates agent quality to first-party or
+specialized coding agents and focuses on the personal gateway layer.
+
+This means frwrd can be smaller and more durable:
+
+- When Claude Code improves, the Claude backend improves.
+- When Codex improves, the Codex backend improves.
+- When Pi improves, the Pi backend improves.
+- When another agent becomes better, frwrd can add an adapter instead of
+  rewriting the product.
+
+## Durable Direction
+
+Lock in these choices:
+
+- Keep messaging channels replaceable and channel state isolated.
+- Keep Markdown as the first user-owned context model.
+- Keep multiple runtimes behind a narrow backend contract.
+- Avoid a plugin system in the gateway.
+- Avoid a custom agent loop.
+- Treat runtime config as adapter-specific.
+- Keep the core gateway state backend-neutral.
+
+## Roadmap
+
+These are possible future additions, not shipped behavior or commitments:
+
+1. Add memory write-back only with an audit trail and explicit user review.
+2. Add richer runtime routing, such as task-type routing.
+3. Add a Homebrew formula after release assets are stable.

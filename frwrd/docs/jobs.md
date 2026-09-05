@@ -1,0 +1,243 @@
+# Jobs and schedules
+
+Jobs make frwrd useful while you are not in a conversation. Each job is a
+user-owned Markdown runbook in the configured assistant repository's `jobs/`
+directory. TOML frontmatter defines execution policy; the Markdown body is
+sent verbatim to a fresh backend session.
+
+The schedule definition lives in the same Markdown file as the job. frwrd
+evaluates that definition and stores its run and delivery state. For every run:
+
+- `SOUL.md` is supplied automatically as identity and working instructions;
+- files under `context/` are optional shared information and are not inserted
+  automatically; keep task-specific instructions in the job;
+- the job body is the fresh request, without chat history or template expansion;
+- `primary_delivery` in frwrd configuration selects where scheduled results go.
+
+## Create a job
+
+Create `<assistant_root>/jobs/repo-review.md`:
+
+```markdown
++++
+version = 1
+timeout = "5m"
+backend = "codex"
++++
+
+Review repositories with uncommitted work. Summarize the risk and the next
+useful action. Do not change files or remote state.
+```
+
+Job names are lowercase ASCII slugs made from letters, digits, and hyphens.
+Files must be regular UTF-8 Markdown files directly inside the derived
+`<assistant_root>/jobs` directory.
+Subdirectories and symlinks are rejected.
+
+Frontmatter fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `version` | yes | Format version, currently `1` |
+| `timeout` | yes | Positive duration no greater than `jobs_max_timeout` |
+| `workdir` | no | Existing working directory for the backend; defaults to `assistant_root` |
+| `backend` | no | `claude`, `codex`, or `pi`; defaults to `jobs_agent`, then root `agent` |
+| `evals` | no | Reusable Markdown agent eval names from `<assistant_root>/evals/` |
+| `triggers` | no | One or more cron trigger tables |
+
+Unknown fields are errors. The assistant repository is a valid work directory.
+A job work directory may not overlap frwrd state, database, audit log, job lock
+paths, or a loaded config stored outside the assistant repository.
+
+## Validate and inspect jobs
+
+```sh
+frwrd job validate
+frwrd job list
+frwrd job show repo-review
+```
+
+Validation reports every valid and invalid file. An invalid job is disabled
+individually and does not stop messaging or other valid jobs. Validation does
+not activate an enabled schedule.
+
+## Evaluate completed work
+
+Jobs can assign one or more reusable agent evals:
+
+```toml
+evals = ["writing-style", "task-completion"]
+```
+
+Each name resolves to one non-empty regular Markdown file directly under
+`<assistant_root>/evals/`. Names use the same lowercase ASCII slug format as
+jobs. Symlinks, missing files, duplicate names, invalid UTF-8, more than 16
+assigned evals, files larger than 64 KiB, and assigned evals larger than 256 KiB
+in total are rejected during job validation. Assigned eval contents are included
+in the validated job snapshot, so changing an eval changes the snapshot used for
+future claims.
+
+For example, create `<assistant_root>/evals/writing-style.md`:
+
+```markdown
+# Writing style
+
+Fail work that uses em dashes, unsupported claims, or needlessly complex words.
+```
+
+After a job returns successfully, frwrd starts one fresh evaluator session using
+the same backend, timeout, and work directory. The evaluator receives the
+original job, final response, and every assigned eval, then must finish with
+`VERDICT: PASS` or `VERDICT: FAIL`. frwrd disables evaluator shell access,
+external MCP tools, extensions, browser integrations, and session persistence.
+Codex project instructions are also disabled. Some backends may retain
+non-mutating built-in utility tools. The first version evaluates the returned
+response and does not inspect work-directory artifacts.
+
+Evaluation is recorded separately as `running`, `passed`, `failed`, `error`, or
+`not_requested`. A failed or malformed evaluation does not rewrite the result,
+rerun the job, or change a successful execution into a failed execution.
+Scheduled delivery includes the evaluation verdict and failure details.
+
+## Run a job manually
+
+```sh
+frwrd job run repo-review
+frwrd job runs repo-review
+```
+
+A manual run executes in the invoking CLI process and prints its result there.
+It does not proactively message a channel. frwrd records and claims the run in
+SQLite before starting the backend and holds a non-blocking per-job advisory
+lock for the run's lifetime.
+
+If the same job is already active, the new attempt is recorded as
+`skipped_overlap`. A fresh claim can recover a stale claim only after acquiring
+the released OS lock, so a live process is not reclaimed from database state
+alone.
+
+## Schedule a job
+
+Add one or more five-field cron triggers:
+
+```toml
+[[triggers]]
+id = "weekday-morning"
+kind = "cron"
+schedule = "0 8 * * 1-5"
+timezone = "Europe/London"
+enabled = true
+```
+
+Then configure a delivery destination:
+
+```toml
+[primary_delivery]
+channel = "telegram"
+target = "123456789"
+```
+
+Scheduling starts only when the primary destination is enabled and
+allowlisted. A missing or invalid destination disables new scheduled starts
+without affecting conversations or manual jobs.
+
+Saving `enabled = true` creates a schedule activation proposal. The Markdown
+file remains available for validation, inspection, and `frwrd job run`, but the
+scheduler does not plan the enabled trigger until the proposal is approved.
+frwrd assigns each proposal to one allowlisted conversation when it presents a
+durable question showing the exact job name, content revision, enabled cron
+schedules, effective backend, timeout, work directory, and primary delivery
+target. That persisted identity is the review owner; concurrent conversations
+cannot adopt or answer its question. Reply with the question UUID followed by
+the number for Approve or Reject. A number alone is rejected so a delayed reply
+cannot select a replacement question. The question expires after 24 hours.
+
+Approval is bound to the exact channel, sender, chat, thread or topic, validated
+file revision, file identity, effective execution settings, and delivery
+target. A file edit, invalid file, symlink or path replacement, schedule change,
+backend change, timeout change, work-directory change, or delivery-target
+change invalidates the prior activation before it can run. A later valid
+revision receives a new review. Disabled triggers and jobs without triggers do
+not require activation review.
+
+Use `frwrd job reviews [<name>]` to inspect current and historical schedule
+review state. A manually edited schedule is still detected and kept inactive;
+the next completed request from an allowlisted conversation can receive its
+review question.
+
+frwrd runs at most `jobs_max_workers` scheduled jobs concurrently. It does not
+catch up cron occurrences missed while offline. Daylight-saving gaps are
+skipped; repeated local times run once at their first instant. Cron expressions
+whose selected months and days can never form a calendar date are rejected
+during job validation.
+
+## Complete assistant example
+
+The [daily inbox triage job](https://github.com/utachicodes/frwrd/blob/main/examples/assistant/jobs/daily-inbox-triage.md)
+keeps global identity separate while making the scheduled runbook self-contained:
+
+```text
+SOUL.md
+jobs/daily-inbox-triage.md
+```
+
+That one job file contains its schedule, triage priorities, output format, and
+safety rules. It uses email tools configured in the selected agent, drafts no
+replies, and performs no external side effects. Its schedule is disabled by
+default. Set `enabled = true` in the job only after configuring the email tools
+and primary delivery destination.
+
+## Execution and delivery guarantees
+
+- Every job and evaluator run uses a fresh backend session, without chat history.
+- Codex and Claude jobs bypass interactive permissions so unattended work can
+  complete. Evaluators remain restricted.
+- frwrd does not retry failed or timed-out backend execution because the agent
+  may have completed external side effects before failing.
+- Success, failure, timeout, overlap, and delivery state are stored separately.
+- Scheduled output is persisted before delivery.
+- Delivery retries use the stored result and never rerun the backend.
+- Delivery is claimed across gateway processes. Normal partial-message retries
+  resume from the first unsent chunk. frwrd checkpoints each successful chunk
+  and bounds a delivery attempt below its claim lease so an active worker cannot
+  be reclaimed. Delivery can still produce an at-least-once duplicate after a
+  process crash between a channel send and its checkpoint, or after a
+  delivery-state persistence failure, because channel APIs do not provide
+  atomic delivery.
+- Queued runs and pending delivery survive restart. Interrupted execution is
+  not automatically replayed.
+
+Use `frwrd job runs [<name>]` to inspect execution state, evaluation state,
+delivery attempts, destination, bounded results, and error details.
+
+## Agent-created jobs
+
+When a user asks for a job, the assistant writes the complete runbook directly
+to `<assistant_root>/jobs/<lowercase-slug>.md` and runs `frwrd job validate`.
+There is no separate draft-file or installation approval step. The selected
+agent's filesystem permissions control whether it can change the assistant
+repository. A new or changed enabled schedule remains inactive until its
+separate activation review succeeds.
+
+For an assistant repository created before this change, replace any `AGENTS.md`
+instruction that says to propose jobs through approval with the direct-write
+rule above. The gateway's runtime instruction overrides that old rule, but
+updating the repository keeps its checked-in guidance accurate.
+
+Pending draft-install approvals from older frwrd versions are cancelled during
+database migration. Replying to one explains that the job must be requested
+again. On upgrade to schedule activation review, each valid enabled schedule
+whose exact revision exists when the first upgraded command opens job state is
+captured as the migration baseline. Those revisions are recorded as approved
+and activated once when a valid primary destination exists. If that first
+command has no valid primary destination, frwrd records an empty baseline and
+closes the migration without grandfathering any schedules. Disabled and invalid
+jobs are not grandfathered.
+
+!!! warning
+
+    Schedule activation review is not an agent permission prompt. After
+    activation, frwrd runs Codex jobs with full access and no prompts and Claude
+    jobs in `bypassPermissions` mode. Treat every activated job as code
+    execution by the frwrd service user, review changes to the assistant
+    repository, and allow only trusted senders.
