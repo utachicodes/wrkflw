@@ -172,8 +172,8 @@ a {
 .logo {
   position: relative;
   z-index: 12;
-  width: clamp(40px, 4.4vw, 46px);
-  height: clamp(40px, 4.4vw, 46px);
+  width: clamp(52px, 5.6vw, 60px);
+  height: clamp(52px, 5.6vw, 60px);
   border-radius: 50%;
   background: #ffffff;
   box-shadow: var(--nav-shadow);
@@ -187,8 +187,8 @@ a {
 }
 
 .logo img {
-  width: 72%;
-  height: 72%;
+  width: 82%;
+  height: 82%;
   object-fit: contain;
 }
 
@@ -229,6 +229,17 @@ a {
 
 .nav-link.active {
   opacity: 1;
+}
+
+.nav-pill.single {
+  flex: none;
+  max-width: none;
+  padding: 4px 30px;
+}
+
+.nav-link.brand-name {
+  opacity: 1;
+  font-weight: 600;
 }
 
 .nav-link.active::after {
@@ -422,7 +433,7 @@ body.menu-open .burger span:nth-child(3) {
 
 .headline {
   font-family: var(--font-display);
-  color: #ffffff;
+  color: #111111;
   font-size: clamp(28px, 6.2vw, 80px);
   font-weight: 400;
   letter-spacing: -0.04em;
@@ -443,6 +454,10 @@ body.menu-open .burger span:nth-child(3) {
   opacity: 0;
   animation: headlineFade 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   animation-delay: var(--d, 0s);
+}
+
+.headline-line.light {
+  color: #ffffff;
 }
 
 @media (max-width: 720px) {
@@ -651,22 +666,13 @@ body.menu-open .burger span:nth-child(3) {
 
 @media (max-width: 720px) {
   .header {
-    justify-content: space-between;
+    justify-content: center;
     gap: 0;
   }
 
-  .nav-pill,
-  .sign-in {
-    display: none;
-  }
-
   .logo {
-    width: 48px;
-    height: 48px;
-  }
-
-  .burger {
-    display: flex;
+    width: 56px;
+    height: 56px;
   }
 
   .stats {
@@ -723,7 +729,7 @@ body.menu-open .burger span:nth-child(3) {
   }
 
   .headline {
-    color: #ffffff;
+    color: #111111;
   }
 
   .stat-value {

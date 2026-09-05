@@ -11,6 +11,7 @@
   var burger = document.getElementById("burger");
   var overlay = document.getElementById("menu-overlay");
   var menu = document.getElementById("mobile-menu");
+  if (burger && overlay && menu) {
   var menuLinks = menu.querySelectorAll("a");
 
   function openMenu() {
@@ -52,6 +53,7 @@
       closeMenu();
     }
   });
+  }
 
   /* Stats count-up -------------------------------------------------------- */
 

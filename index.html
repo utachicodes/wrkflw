@@ -10,7 +10,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link href="https://db.onlinewebfonts.com/c/8cb707a9b8a73f8a7403336b861c3074?family=BubbledotICG-FinePos" rel="stylesheet" />
+  <link
+    href="https://db.onlinewebfonts.com/c/8cb707a9b8a73f8a7403336b861c3074?family=BubbledotICG-FinePos"
+    rel="stylesheet"
+  />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
     integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A=="
     crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -28,45 +31,30 @@
   <div class="page">
     <header class="header">
       <a class="logo" href="#" aria-label="wrkflw">
-        <img src="assets/logo.webp" alt="" width="52" height="52" />
+        <img src="assets/logo-icon.svg" alt="" width="56" height="56" />
       </a>
-
-      <nav class="nav-pill" aria-label="Primary">
-        <a class="nav-link active" href="#">Home</a>
-        <a class="nav-link" href="#">Product</a>
-        <a class="nav-link" href="#">Case Studies</a>
-        <a class="nav-link" href="#">Contact</a>
-      </nav>
-
-      <a class="sign-in" href="#">Sign in</a>
-
-      <button class="burger" id="burger" aria-expanded="false" aria-controls="mobile-menu" aria-label="Menu">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
     </header>
 
     <main class="hero">
       <div class="trust anim" style="--d: 0.05s">
-        <span class="avatar a1"><i class="fa-brands fa-apple"></i></span>
-        <span class="avatar a2"><i class="fa-brands fa-microsoft"></i></span>
+        <span class="avatar a1"><i class="fa-brands fa-microsoft"></i></span>
+        <span class="avatar a2"><i class="fa-brands fa-amazon"></i></span>
         <span class="avatar a3"><i class="fa-brands fa-google"></i></span>
         <span class="trust-pill">Works with every major coding agent</span>
       </div>
 
       <h1 class="headline anim">
         <span class="headline-line" style="--d: 0.12s">Intelligence</span>
-        <span class="headline-line" style="--d: 0.3s">Designed To Work</span>
+        <span class="headline-line light" style="--d: 0.3s">Designed To Work</span>
       </h1>
 
       <p class="subhead anim" style="--d: 0.28s">
-        One board where people and coding agents share the same work. Put tasks on
-        the board, let agents execute on machines you own, and stay in the loop
-        when it matters.
+        One board where people and coding agents share the same work. Put
+        tasks on the board, let agents execute on machines you own, and stay
+        in the loop when it matters.
       </p>
 
-      <a class="cta anim" href="#" style="--d: 0.4s">Get Started</a>
+      <a class="cta anim" href="#" style="--d: 0.4s">Log in</a>
     </main>
 
     <footer class="stats" aria-label="Platform highlights">
@@ -92,16 +80,6 @@
       </div>
     </footer>
   </div>
-
-  <div class="menu-overlay" id="menu-overlay" hidden></div>
-
-  <nav class="menu" id="mobile-menu" hidden aria-label="Mobile">
-    <a class="menu-link active" href="#" style="--i: 0">Home<span class="menu-dots"></span></a>
-    <a class="menu-link" href="#" style="--i: 1">Product</a>
-    <a class="menu-link" href="#" style="--i: 2">Case Studies</a>
-    <a class="menu-link" href="#" style="--i: 3">Contact</a>
-    <a class="menu-sign-in" href="#" style="--i: 4">Sign in</a>
-  </nav>
 
   <script src="main.js"></script>
 </body>

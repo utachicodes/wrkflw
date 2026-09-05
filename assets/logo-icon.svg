@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 24" role="img" aria-label="wrkflw">
+  <g fill="#17181b">
+    <rect x="4" y="2" width="17" height="11" rx="3.5" transform="skewX(-12) translate(1.2 0)"/>
+    <rect x="15" y="11" width="17" height="11" rx="3.5" transform="skewX(-12) translate(3.1 0)"/>
+  </g>
+</svg>
