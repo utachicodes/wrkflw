@@ -12,17 +12,19 @@ import (
 	"github.com/utachicodes/wrkflw/server/internal/auth"
 	"github.com/utachicodes/wrkflw/server/internal/boards"
 	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/gateway"
 	"github.com/utachicodes/wrkflw/server/internal/httpapi"
 	"github.com/utachicodes/wrkflw/server/internal/ratelimit"
 )
 
 type App struct {
-	static fs.FS
-	db     *database.Pool
-	auth   *auth.Service
-	agents *agents.Handler
-	boards *boards.Handler
-	limits ratelimit.Limiter
+	static  fs.FS
+	db      *database.Pool
+	auth    *auth.Service
+	agents  *agents.Handler
+	boards  *boards.Handler
+	gateway *gateway.Handler
+	limits  ratelimit.Limiter
 }
 
 func (a *App) RunPasswordResetWorker(ctx context.Context) {
@@ -38,6 +40,7 @@ func NewApp(static fs.FS, db *database.Pool, cookieSecure bool, options auth.Opt
 		app.auth = auth.NewServiceWithOptions(authStore, cookieSecure, options)
 		app.agents = agents.NewHandler(agents.NewStore(db, authStore))
 		app.boards = boards.NewHandler(boards.NewStore(db))
+		app.gateway = gateway.NewHandler(gateway.NewStore(db))
 		app.limits = ratelimit.NewPG(db)
 	}
 	return app
@@ -90,6 +93,9 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/move", a.accountManage(a.boards.MoveTask))
 	mux.HandleFunc("PATCH /api/v1/tasks/{id}/status", a.session(a.boards.UpdateTaskStatus))
 	mux.HandleFunc("DELETE /api/v1/tasks/{id}", a.accountManage(a.boards.DeleteTask))
+	mux.HandleFunc("GET /api/v1/gateway/config", a.person(a.gateway.GetConfig))
+	mux.HandleFunc("PATCH /api/v1/gateway/config", a.person(a.gateway.UpdateConfig))
+	mux.HandleFunc("POST /api/v1/gateway/pull", a.person(a.gateway.PullConfig))
 	mux.HandleFunc("GET /api/v1/stats/summary", a.user(a.boards.GetWorkspaceSummary))
 	mux.HandleFunc("GET /api/v1/agent/tasks", a.user(a.boards.AgentTasks))
 	mux.HandleFunc("POST /api/v1/agent/tasks/{id}/claim", a.user(a.boards.AgentClaim))
