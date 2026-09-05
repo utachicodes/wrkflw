@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ -z "${SLATE_TEST_DATABASE_URL:-}" ]; then
-  printf '%s\n' 'SLATE_TEST_DATABASE_URL is required for the CI server suite' >&2
+if [ -z "${WRKFLW_TEST_DATABASE_URL:-}" ]; then
+  printf '%s\n' 'WRKFLW_TEST_DATABASE_URL is required for the CI server suite' >&2
   exit 1
 fi
 

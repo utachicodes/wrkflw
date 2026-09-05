@@ -20,20 +20,20 @@ assert_not_contains() {
 }
 
 for file in cloudbuild.yaml scripts/gcp-deploy.sh; do
-  assert_contains "$file" "slate-migrate"
-  assert_contains "$file" "slate-cleanup"
+  assert_contains "$file" "wrkflw-migrate"
+  assert_contains "$file" "wrkflw-cleanup"
   assert_contains "$file" "--args cleanup"
   assert_contains "$file" '17 3 * * *'
   assert_contains "$file" "--attempt-deadline 300s"
   assert_contains "$file" "--max-retries 1"
-  assert_contains "$file" "slate-postgres-ew1"
-  assert_contains "$file" "INVITE_CODE=slate-invite-code:latest"
-  assert_contains "$file" "secrets versions describe latest --secret=slate-invite-code --format='value(state)'"
+  assert_contains "$file" "wrkflw-postgres-ew1"
+  assert_contains "$file" "INVITE_CODE=wrkflw-invite-code:latest"
+  assert_contains "$file" "secrets versions describe latest --secret=wrkflw-invite-code --format='value(state)'"
   assert_contains "$file" 'invite_secret_state'
   assert_contains "$file" '= ENABLED ]'
   assert_contains "$file" "run services list"
   assert_contains "$file" "existing_env_names"
-  assert_contains "$file" "The live service uses INVITE_CODE, but slate-invite-code:latest is not enabled or accessible"
+  assert_contains "$file" "The live service uses INVITE_CODE, but wrkflw-invite-code:latest is not enabled or accessible"
   assert_not_contains "$file" "env[].name)' 2>/dev/null"
   assert_contains "$file" '"database":"ok"'
   assert_contains "$file" "--ingress"
@@ -54,27 +54,27 @@ for file in cloudbuild.yaml scripts/gcp-deploy.sh; do
   assert_not_contains "$file" "--add-cloudsql-instances"
   assert_not_contains "$file" "--max-instances"
   assert_not_contains "$file" "europe-west2"
-  assert_not_contains "$file" "slate-postgres,"
+  assert_not_contains "$file" "wrkflw-postgres,"
 done
 
-assert_contains cloudbuild.yaml 'slate-migrate-$SHORT_SHA'
-assert_contains cloudbuild.yaml 'serviceAccount: projects/$PROJECT_ID/serviceAccounts/slate-deploy@$PROJECT_ID.iam.gserviceaccount.com'
-assert_contains cloudbuild.yaml 'slate-web@$PROJECT_ID.iam.gserviceaccount.com'
-assert_contains cloudbuild.yaml 'slate-maintenance@$PROJECT_ID.iam.gserviceaccount.com'
-assert_contains cloudbuild.yaml 'slate-scheduler@$PROJECT_ID.iam.gserviceaccount.com'
+assert_contains cloudbuild.yaml 'wrkflw-migrate-$SHORT_SHA'
+assert_contains cloudbuild.yaml 'serviceAccount: projects/$PROJECT_ID/serviceAccounts/wrkflw-deploy@$PROJECT_ID.iam.gserviceaccount.com'
+assert_contains cloudbuild.yaml 'wrkflw-web@$PROJECT_ID.iam.gserviceaccount.com'
+assert_contains cloudbuild.yaml 'wrkflw-maintenance@$PROJECT_ID.iam.gserviceaccount.com'
+assert_contains cloudbuild.yaml 'wrkflw-scheduler@$PROJECT_ID.iam.gserviceaccount.com'
 assert_contains cloudbuild.yaml '--service-account "$$web_service_account"'
 assert_contains cloudbuild.yaml '--service-account "$$maintenance_service_account"'
 assert_contains cloudbuild.yaml '--member="serviceAccount:$$scheduler_service_account" --role=roles/run.invoker'
-assert_contains cloudbuild.yaml 'gs://${PROJECT_ID}_cloudbuild/deploy/slate.lock'
+assert_contains cloudbuild.yaml 'gs://${PROJECT_ID}_cloudbuild/deploy/wrkflw.lock'
 assert_not_contains cloudbuild.yaml 'compute@developer.gserviceaccount.com'
 assert_contains cloudbuild.yaml '_REGION: europe-west1'
-assert_contains cloudbuild.yaml 'slate.lock'
+assert_contains cloudbuild.yaml 'wrkflw.lock'
 assert_contains cloudbuild.yaml '--if-generation-match=0'
 assert_contains cloudbuild.yaml 'Unable to create or inspect the production deployment lock'
 assert_contains cloudbuild.yaml 'Waiting for production deployment lock'
 assert_contains cloudbuild.yaml 'Could not verify production deployment lock owner'
 assert_contains cloudbuild.yaml 'SUCCESS|FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED'
-assert_contains cloudbuild.yaml 'git ls-remote https://github.com/owainlewis/slate.do.git refs/heads/main'
+assert_contains cloudbuild.yaml 'git ls-remote https://github.com/utachicodes/wrkflw.git refs/heads/main'
 assert_contains cloudbuild.yaml 'Expected deployed image'
 assert_contains cloudbuild.yaml '$COMMIT_SHA-$BUILD_ID'
 assert_contains cloudbuild.yaml 'image_summary.fully_qualified_digest'
@@ -82,7 +82,7 @@ assert_contains cloudbuild.yaml 'go test ./...'
 assert_contains cloudbuild.yaml 'scripts/verify-github-ci.sh'
 assert_contains .github/workflows/ci.yml 'name: Required CI'
 assert_contains .github/workflows/ci.yml 'postgres:18-alpine'
-assert_contains .github/workflows/ci.yml 'SLATE_TEST_DATABASE_URL'
+assert_contains .github/workflows/ci.yml 'WRKFLW_TEST_DATABASE_URL'
 assert_contains .github/workflows/ci.yml 'npx playwright install --with-deps chromium'
 assert_contains .github/workflows/ci.yml 'extractions/setup-just@v3'
 assert_contains .github/workflows/ci.yml 'just-version: "1.50.0"'
@@ -110,10 +110,10 @@ assert_contains cloudbuild.yaml '_REQUEST_TIMEOUT_SECONDS + 5'
 assert_not_contains cloudbuild.yaml '_CLOUD_RUN_REQUEST_TIMEOUT'
 assert_not_contains cloudbuild.yaml '-lc'
 assert_contains docs/deploy.md 'roles/cloudbuild.builds.editor'
-assert_contains docs/deploy.md 'gcloud secrets create slate-invite-code --project="$PROJECT_ID"'
-assert_contains docs/deploy.md 'gcloud secrets versions add slate-invite-code --project="$PROJECT_ID"'
+assert_contains docs/deploy.md 'gcloud secrets create wrkflw-invite-code --project="$PROJECT_ID"'
+assert_contains docs/deploy.md 'gcloud secrets versions add wrkflw-invite-code --project="$PROJECT_ID"'
 assert_contains docs/deploy.md 'PROJECT_ID="$PROJECT_ID" bash scripts/gcp-identities.sh'
-assert_contains docs/deploy.md 'gcloud run services update slate --project="$PROJECT_ID"'
+assert_contains docs/deploy.md 'gcloud run services update wrkflw --project="$PROJECT_ID"'
 assert_contains docs/deploy.md 'The identity script must run after the secret exists and before invite registration is enabled.'
 assert_contains docs/deploy.md '4 × 2 = 8'
 assert_contains docs/deploy.md 'scripts/check-capacity.sh'
@@ -155,8 +155,8 @@ assert_contains scripts/gcp-identities.sh 'grant_service_account_role "$DEPLOY_S
 assert_contains scripts/gcp-finalize-identities.sh 'expect_equal "deploy self attachment" roles/iam.serviceAccountUser'
 assert_not_contains scripts/gcp-identities.sh 'compute@developer.gserviceaccount.com'
 
-assert_contains scripts/gcp-finalize-identities.sh 'gcloud run jobs execute slate-cleanup'
-assert_contains scripts/gcp-finalize-identities.sh 'gcloud scheduler jobs run slate-cleanup'
+assert_contains scripts/gcp-finalize-identities.sh 'gcloud run jobs execute wrkflw-cleanup'
+assert_contains scripts/gcp-finalize-identities.sh 'gcloud scheduler jobs run wrkflw-cleanup'
 assert_contains scripts/gcp-finalize-identities.sh 'roles/secretmanager.secretAccessor'
 assert_contains scripts/gcp-finalize-identities.sh 'compute@developer.gserviceaccount.com'
 assert_contains scripts/gcp-finalize-identities.sh 'scripts/gcp-remove-default-roles.sh'
@@ -165,7 +165,7 @@ default_role_state="$(mktemp)"
 retry_state="$(mktemp)"
 retry_output="$(mktemp)"
 trap 'rm -f "$retry_state" "$retry_output" "$default_role_state"' EXIT INT TERM
-awk '/^SLATE_ROLES=\(/,/^\)$/ { if ($1 ~ /^roles\//) { print $1 } }' \
+awk '/^WRKFLW_ROLES=\(/,/^\)$/ { if ($1 ~ /^roles\//) { print $1 } }' \
   scripts/gcp-remove-default-roles.sh >"$default_role_state"
 if [ "$(wc -l <"$default_role_state" | tr -d ' ')" -ne 10 ]; then
   printf '%s\n' 'default-role removal test did not discover all ten legacy roles' >&2
@@ -175,7 +175,7 @@ printf '%s\n' roles/editor >>"$default_role_state"
 for _ in 1 2; do
   GCP_DEFAULT_ROLE_STATE="$default_role_state" \
     PATH="$PWD/scripts/testdata/gcp-identities:$PATH" \
-    PROJECT_ID=slate-test bash scripts/gcp-remove-default-roles.sh >/dev/null
+    PROJECT_ID=wrkflw-test bash scripts/gcp-remove-default-roles.sh >/dev/null
 done
 if [ "$(cat "$default_role_state")" != roles/editor ]; then
   printf '%s\n' 'default-role removal did not preserve only the unrelated role' >&2

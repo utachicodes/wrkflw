@@ -24,8 +24,8 @@ for archive in $expected_archives; do
     exit 1
   }
   entries=$(tar -tzf "$release_dir/$archive")
-  [ "$entries" = "slate" ] || {
-    printf '%s must contain only the slate binary\n' "$archive" >&2
+  [ "$entries" = "wrkflw" ] || {
+    printf '%s must contain only the wrkflw binary\n' "$archive" >&2
     exit 1
   }
 done
@@ -67,9 +67,9 @@ if [ -n "$host_archive" ]; then
   tmp_dir=$(mktemp -d)
   trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
   tar -xzf "$release_dir/$host_archive" -C "$tmp_dir"
-  output=$("$tmp_dir/slate" version)
+  output=$("$tmp_dir/wrkflw" version)
   [ "$output" = "{\"version\":\"$version\"}" ] || {
-    printf 'slate version returned %s, want %s\n' "$output" "$version" >&2
+    printf 'wrkflw version returned %s, want %s\n' "$output" "$version" >&2
     exit 1
   }
 fi

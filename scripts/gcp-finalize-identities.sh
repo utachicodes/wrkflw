@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-slate-do-production}"
+PROJECT_ID="${PROJECT_ID:-wrkflw-do-production}"
 REGION="${REGION:-europe-west1}"
-HEALTH_URL="${HEALTH_URL:-https://slate.do/api/health}"
-TRIGGER_NAME="${TRIGGER_NAME:-slate-main-deploy}"
+HEALTH_URL="${HEALTH_URL:-https://wrkflw/api/health}"
+TRIGGER_NAME="${TRIGGER_NAME:-wrkflw-main-deploy}"
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
 DEFAULT_SERVICE_ACCOUNT="$PROJECT_NUMBER-compute@developer.gserviceaccount.com"
-DEPLOY_SERVICE_ACCOUNT="slate-deploy@$PROJECT_ID.iam.gserviceaccount.com"
-WEB_SERVICE_ACCOUNT="slate-web@$PROJECT_ID.iam.gserviceaccount.com"
-MAINTENANCE_SERVICE_ACCOUNT="slate-maintenance@$PROJECT_ID.iam.gserviceaccount.com"
-SCHEDULER_SERVICE_ACCOUNT="slate-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
-BUILD_BUCKET="${BUILD_BUCKET:-gs://${PROJECT_ID}-slate-build}"
+DEPLOY_SERVICE_ACCOUNT="wrkflw-deploy@$PROJECT_ID.iam.gserviceaccount.com"
+WEB_SERVICE_ACCOUNT="wrkflw-web@$PROJECT_ID.iam.gserviceaccount.com"
+MAINTENANCE_SERVICE_ACCOUNT="wrkflw-maintenance@$PROJECT_ID.iam.gserviceaccount.com"
+SCHEDULER_SERVICE_ACCOUNT="wrkflw-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
+BUILD_BUCKET="${BUILD_BUCKET:-gs://${PROJECT_ID}-wrkflw-build}"
 LOCK_BUCKET="${LOCK_BUCKET:-gs://${PROJECT_ID}_cloudbuild}"
 
 expect_equal() {
@@ -82,43 +82,43 @@ for runtime_member in "$web_member" "$maintenance_member"; do
     --flatten='bindings[].members' \
     --filter="bindings.members=$runtime_member AND bindings.role=roles/cloudsql.client" \
     --format='value(bindings.condition.expression)')"
-  if ! grep -F "projects/$PROJECT_ID/instances/slate-postgres-ew1" <<<"$cloud_sql_condition" >/dev/null; then
-    printf 'Cloud SQL access for %s is not restricted to slate-postgres-ew1\n' "$runtime_member" >&2
+  if ! grep -F "projects/$PROJECT_ID/instances/wrkflw-postgres-ew1" <<<"$cloud_sql_condition" >/dev/null; then
+    printf 'Cloud SQL access for %s is not restricted to wrkflw-postgres-ew1\n' "$runtime_member" >&2
     exit 1
   fi
 done
 
-for secret in slate-database-url slate-session-secret slate-resend-api-key; do
+for secret in wrkflw-database-url wrkflw-session-secret wrkflw-resend-api-key; do
   secret_roles="$(gcloud secrets get-iam-policy "$secret" --project "$PROJECT_ID" \
     --flatten='bindings[].members' --filter="bindings.members=$web_member" --format='value(bindings.role)')"
   expect_equal "$secret web access" roles/secretmanager.secretAccessor "$secret_roles"
 done
-maintenance_secret_roles="$(gcloud secrets get-iam-policy slate-database-url --project "$PROJECT_ID" \
+maintenance_secret_roles="$(gcloud secrets get-iam-policy wrkflw-database-url --project "$PROJECT_ID" \
   --flatten='bindings[].members' --filter="bindings.members=$maintenance_member" --format='value(bindings.role)')"
 expect_equal "database maintenance access" roles/secretmanager.secretAccessor "$maintenance_secret_roles"
-for secret in slate-session-secret slate-resend-api-key; do
+for secret in wrkflw-session-secret wrkflw-resend-api-key; do
   maintenance_secret_roles="$(gcloud secrets get-iam-policy "$secret" --project "$PROJECT_ID" \
     --flatten='bindings[].members' --filter="bindings.members=$maintenance_member" --format='value(bindings.role)')"
   expect_equal "$secret maintenance access" "" "$maintenance_secret_roles"
 done
-for secret in slate-database-url slate-session-secret slate-resend-api-key; do
+for secret in wrkflw-database-url wrkflw-session-secret wrkflw-resend-api-key; do
   deploy_secret_roles="$(gcloud secrets get-iam-policy "$secret" --project "$PROJECT_ID" \
     --flatten='bindings[].members' --filter="bindings.members=$deploy_member" --format='value(bindings.role)')"
   expect_equal "$secret deploy access" "" "$deploy_secret_roles"
 done
-if gcloud secrets describe slate-invite-code --project "$PROJECT_ID" >/dev/null 2>&1; then
-  invite_web_roles="$(gcloud secrets get-iam-policy slate-invite-code --project "$PROJECT_ID" \
+if gcloud secrets describe wrkflw-invite-code --project "$PROJECT_ID" >/dev/null 2>&1; then
+  invite_web_roles="$(gcloud secrets get-iam-policy wrkflw-invite-code --project "$PROJECT_ID" \
     --flatten='bindings[].members' --filter="bindings.members=$web_member" --format='value(bindings.role)')"
   expect_equal "invite web access" roles/secretmanager.secretAccessor "$invite_web_roles"
-  invite_maintenance_roles="$(gcloud secrets get-iam-policy slate-invite-code --project "$PROJECT_ID" \
+  invite_maintenance_roles="$(gcloud secrets get-iam-policy wrkflw-invite-code --project "$PROJECT_ID" \
     --flatten='bindings[].members' --filter="bindings.members=$maintenance_member" --format='value(bindings.role)')"
   expect_equal "invite maintenance access" "" "$invite_maintenance_roles"
-  deploy_invite_roles="$(gcloud secrets get-iam-policy slate-invite-code --project "$PROJECT_ID" \
+  deploy_invite_roles="$(gcloud secrets get-iam-policy wrkflw-invite-code --project "$PROJECT_ID" \
     --flatten='bindings[].members' --filter="bindings.members=$deploy_member" --format='value(bindings.role)')"
   expect_equal "invite metadata deploy access" roles/secretmanager.viewer "$deploy_invite_roles"
 fi
 
-artifact_roles="$(gcloud artifacts repositories get-iam-policy slate --project "$PROJECT_ID" --location "$REGION" \
+artifact_roles="$(gcloud artifacts repositories get-iam-policy wrkflw --project "$PROJECT_ID" --location "$REGION" \
   --flatten='bindings[].members' --filter="bindings.members=$deploy_member" --format='value(bindings.role)')"
 expect_resource_role "Artifact Registry deploy access" "$artifact_roles" roles/artifactregistry.writer
 bucket_roles="$(bucket_member_roles "$BUILD_BUCKET" "$deploy_member")"
@@ -141,12 +141,12 @@ expect_equal "Cloud Build trigger identity" \
   "projects/$PROJECT_ID/serviceAccounts/$DEPLOY_SERVICE_ACCOUNT" \
   "$(gcloud builds triggers describe "$TRIGGER_NAME" --project "$PROJECT_ID" --region global --format='value(serviceAccount)')"
 expect_equal "web runtime identity" "$WEB_SERVICE_ACCOUNT" \
-  "$(gcloud run services describe slate --project "$PROJECT_ID" --region "$REGION" --format='value(spec.template.spec.serviceAccountName)')"
+  "$(gcloud run services describe wrkflw --project "$PROJECT_ID" --region "$REGION" --format='value(spec.template.spec.serviceAccountName)')"
 expect_equal "cleanup runtime identity" "$MAINTENANCE_SERVICE_ACCOUNT" \
-  "$(gcloud run jobs describe slate-cleanup --project "$PROJECT_ID" --region "$REGION" --format='value(spec.template.spec.template.spec.serviceAccountName)')"
+  "$(gcloud run jobs describe wrkflw-cleanup --project "$PROJECT_ID" --region "$REGION" --format='value(spec.template.spec.template.spec.serviceAccountName)')"
 expect_equal "Scheduler caller identity" "$SCHEDULER_SERVICE_ACCOUNT" \
-  "$(gcloud scheduler jobs describe slate-cleanup --project "$PROJECT_ID" --location "$REGION" --format='value(httpTarget.oauthToken.serviceAccountEmail)')"
-scheduler_job_roles="$(gcloud run jobs get-iam-policy slate-cleanup --project "$PROJECT_ID" --region "$REGION" \
+  "$(gcloud scheduler jobs describe wrkflw-cleanup --project "$PROJECT_ID" --location "$REGION" --format='value(httpTarget.oauthToken.serviceAccountEmail)')"
+scheduler_job_roles="$(gcloud run jobs get-iam-policy wrkflw-cleanup --project "$PROJECT_ID" --region "$REGION" \
   --flatten='bindings[].members' --filter="bindings.members=$scheduler_member" --format='value(bindings.role)')"
 expect_resource_role "Scheduler cleanup invocation" "$scheduler_job_roles" roles/run.invoker
 
@@ -154,20 +154,20 @@ response="$(curl --fail --silent --show-error --retry 6 --retry-all-errors --ret
 printf '%s\n' "$response"
 grep -F '"database":"ok"' <<<"$response" >/dev/null
 
-gcloud run jobs execute slate-cleanup --project "$PROJECT_ID" --region "$REGION" --wait --quiet
-previous_execution="$(gcloud run jobs executions list --job slate-cleanup --project "$PROJECT_ID" --region "$REGION" --sort-by='~createTime' --limit 1 --format='value(name)')"
-gcloud scheduler jobs run slate-cleanup --project "$PROJECT_ID" --location "$REGION" --quiet
+gcloud run jobs execute wrkflw-cleanup --project "$PROJECT_ID" --region "$REGION" --wait --quiet
+previous_execution="$(gcloud run jobs executions list --job wrkflw-cleanup --project "$PROJECT_ID" --region "$REGION" --sort-by='~createTime' --limit 1 --format='value(name)')"
+gcloud scheduler jobs run wrkflw-cleanup --project "$PROJECT_ID" --location "$REGION" --quiet
 
 scheduler_execution=""
 for _ in $(seq 1 60); do
-  scheduler_execution="$(gcloud run jobs executions list --job slate-cleanup --project "$PROJECT_ID" --region "$REGION" --sort-by='~createTime' --limit 1 --format='value(name)')"
+  scheduler_execution="$(gcloud run jobs executions list --job wrkflw-cleanup --project "$PROJECT_ID" --region "$REGION" --sort-by='~createTime' --limit 1 --format='value(name)')"
   if [ -n "$scheduler_execution" ] && [ "$scheduler_execution" != "$previous_execution" ]; then
     break
   fi
   sleep 5
 done
 if [ -z "$scheduler_execution" ] || [ "$scheduler_execution" = "$previous_execution" ]; then
-  printf 'Scheduler did not create a new slate-cleanup execution\n' >&2
+  printf 'Scheduler did not create a new wrkflw-cleanup execution\n' >&2
   exit 1
 fi
 
@@ -182,4 +182,4 @@ succeeded="$(gcloud run jobs executions describe "$scheduler_execution" --projec
 expect_equal "Scheduler cleanup succeeded task count" "1" "$succeeded"
 
 PROJECT_ID="$PROJECT_ID" bash scripts/gcp-remove-default-roles.sh
-printf 'Verified Slate identities and finalized the default compute cutover.\n'
+printf 'Verified wrkflw identities and finalized the default compute cutover.\n'

@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-slate-do-production}"
+PROJECT_ID="${PROJECT_ID:-wrkflw-do-production}"
 REGION="${REGION:-europe-west1}"
-INSTANCE="${INSTANCE:-slate-postgres-ew1}"
-ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-slate}"
-BUILD_BUCKET="${BUILD_BUCKET:-gs://${PROJECT_ID}-slate-build}"
+INSTANCE="${INSTANCE:-wrkflw-postgres-ew1}"
+ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-wrkflw}"
+BUILD_BUCKET="${BUILD_BUCKET:-gs://${PROJECT_ID}-wrkflw-build}"
 LOCK_BUCKET="${LOCK_BUCKET:-gs://${PROJECT_ID}_cloudbuild}"
-TRIGGER_NAME="${TRIGGER_NAME:-slate-main-deploy}"
+TRIGGER_NAME="${TRIGGER_NAME:-wrkflw-main-deploy}"
 OPERATOR_PRINCIPAL="${OPERATOR_PRINCIPAL:-user:$(gcloud config get-value account 2>/dev/null)}"
 
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
-DEPLOY_SERVICE_ACCOUNT="slate-deploy@$PROJECT_ID.iam.gserviceaccount.com"
-WEB_SERVICE_ACCOUNT="slate-web@$PROJECT_ID.iam.gserviceaccount.com"
-MAINTENANCE_SERVICE_ACCOUNT="slate-maintenance@$PROJECT_ID.iam.gserviceaccount.com"
-SCHEDULER_SERVICE_ACCOUNT="slate-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
+DEPLOY_SERVICE_ACCOUNT="wrkflw-deploy@$PROJECT_ID.iam.gserviceaccount.com"
+WEB_SERVICE_ACCOUNT="wrkflw-web@$PROJECT_ID.iam.gserviceaccount.com"
+MAINTENANCE_SERVICE_ACCOUNT="wrkflw-maintenance@$PROJECT_ID.iam.gserviceaccount.com"
+SCHEDULER_SERVICE_ACCOUNT="wrkflw-scheduler@$PROJECT_ID.iam.gserviceaccount.com"
 BUILD_SERVICE_AGENT="service-$PROJECT_NUMBER@gcp-sa-cloudbuild.iam.gserviceaccount.com"
 
 ensure_service_account() {
@@ -75,10 +75,10 @@ grant_required_secret_role() {
     --member "$member" --role "$role" >/dev/null
 }
 
-ensure_service_account slate-deploy "Slate build and deploy"
-ensure_service_account slate-web "Slate public web runtime"
-ensure_service_account slate-maintenance "Slate migration and cleanup jobs"
-ensure_service_account slate-scheduler "Slate cleanup Scheduler caller"
+ensure_service_account wrkflw-deploy "wrkflw build and deploy"
+ensure_service_account wrkflw-web "wrkflw public web runtime"
+ensure_service_account wrkflw-maintenance "wrkflw migration and cleanup jobs"
+ensure_service_account wrkflw-scheduler "wrkflw cleanup Scheduler caller"
 
 for bucket in "$BUILD_BUCKET" "$LOCK_BUCKET"; do
   if ! gcloud storage buckets describe "$bucket" --project "$PROJECT_ID" >/dev/null 2>&1; then
@@ -116,15 +116,15 @@ done
 for runtime_member in "$web_member" "$maintenance_member"; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member "$runtime_member" --role roles/cloudsql.client \
-    --condition="expression=resource.name == 'projects/$PROJECT_ID/instances/$INSTANCE',title=slate-cloud-sql-instance,description=Only the Slate production PostgreSQL instance" >/dev/null
+    --condition="expression=resource.name == 'projects/$PROJECT_ID/instances/$INSTANCE',title=wrkflw-cloud-sql-instance,description=Only the wrkflw production PostgreSQL instance" >/dev/null
 done
 
-for secret in slate-database-url slate-session-secret slate-resend-api-key; do
+for secret in wrkflw-database-url wrkflw-session-secret wrkflw-resend-api-key; do
   grant_required_secret_role "$secret" "$web_member" roles/secretmanager.secretAccessor
 done
-grant_secret_role_if_present slate-invite-code "$web_member" roles/secretmanager.secretAccessor
-grant_required_secret_role slate-database-url "$maintenance_member" roles/secretmanager.secretAccessor
-grant_secret_role_if_present slate-invite-code "$deploy_member" roles/secretmanager.viewer
+grant_secret_role_if_present wrkflw-invite-code "$web_member" roles/secretmanager.secretAccessor
+grant_required_secret_role wrkflw-database-url "$maintenance_member" roles/secretmanager.secretAccessor
+grant_secret_role_if_present wrkflw-invite-code "$deploy_member" roles/secretmanager.viewer
 
 for service_account in "$WEB_SERVICE_ACCOUNT" "$MAINTENANCE_SERVICE_ACCOUNT" "$SCHEDULER_SERVICE_ACCOUNT"; do
   grant_service_account_role "$service_account" "$deploy_member" roles/iam.serviceAccountUser
@@ -143,5 +143,5 @@ if gcloud builds triggers describe "$TRIGGER_NAME" --project "$PROJECT_ID" --reg
     --service-account "projects/$PROJECT_ID/serviceAccounts/$DEPLOY_SERVICE_ACCOUNT" >/dev/null
 fi
 
-printf 'Slate identities are ready:\n  deploy: %s\n  web: %s\n  maintenance: %s\n  scheduler: %s\n' \
+printf 'wrkflw identities are ready:\n  deploy: %s\n  web: %s\n  maintenance: %s\n  scheduler: %s\n' \
   "$DEPLOY_SERVICE_ACCOUNT" "$WEB_SERVICE_ACCOUNT" "$MAINTENANCE_SERVICE_ACCOUNT" "$SCHEDULER_SERVICE_ACCOUNT"

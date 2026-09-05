@@ -32,8 +32,8 @@ for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build \
       -trimpath \
       -ldflags "-s -w -X main.version=$version" \
-      -o "$build_dir/slate" \
-      ./cmd/slate
+      -o "$build_dir/wrkflw" \
+      ./cmd/wrkflw
   )
-  tar -C "$build_dir" -czf "$output_dir/$archive" slate
+  tar -C "$build_dir" -czf "$output_dir/$archive" wrkflw
 done

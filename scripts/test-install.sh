@@ -11,9 +11,9 @@ bin_dir="$tmp_dir/bin"
 install_dir="$tmp_dir/install"
 mkdir -p "$fixture_dir" "$bin_dir"
 
-printf '#!/bin/sh\nprintf "fixture slate\\n"\n' > "$tmp_dir/slate"
-chmod +x "$tmp_dir/slate"
-tar -C "$tmp_dir" -czf "$fixture_dir/slate_linux_amd64.tar.gz" slate
+printf '#!/bin/sh\nprintf "fixture wrkflw\\n"\n' > "$tmp_dir/wrkflw"
+chmod +x "$tmp_dir/wrkflw"
+tar -C "$tmp_dir" -czf "$fixture_dir/wrkflw_linux_amd64.tar.gz" wrkflw
 (
   cd "$fixture_dir"
   sha256sum slate_linux_amd64.tar.gz > checksums.txt
@@ -37,46 +37,46 @@ EOF
 chmod +x "$bin_dir/uname" "$bin_dir/curl"
 
 PATH="$bin_dir:$PATH" \
-SLATE_INSTALL_DIR="$install_dir" \
-SLATE_VERSION=v1.0.0 \
+WRKFLW_INSTALL_DIR="$install_dir" \
+WRKFLW_VERSION=v1.0.0 \
 sh "$repo_root/install.sh"
 
-output=$("$install_dir/slate")
-[ "$output" = "fixture slate" ] || {
+output=$("$install_dir/wrkflw")
+[ "$output" = "fixture wrkflw" ] || {
   printf 'installed binary returned %s\n' "$output" >&2
   exit 1
 }
 
-printf '#!/bin/sh\nprintf "upgraded slate\\n"\n' > "$tmp_dir/slate"
-chmod +x "$tmp_dir/slate"
-tar -C "$tmp_dir" -czf "$fixture_dir/slate_linux_amd64.tar.gz" slate
+printf '#!/bin/sh\nprintf "upgraded wrkflw\\n"\n' > "$tmp_dir/wrkflw"
+chmod +x "$tmp_dir/wrkflw"
+tar -C "$tmp_dir" -czf "$fixture_dir/wrkflw_linux_amd64.tar.gz" wrkflw
 (
   cd "$fixture_dir"
   sha256sum slate_linux_amd64.tar.gz > checksums.txt
 )
 
 PATH="$bin_dir:$PATH" \
-SLATE_INSTALL_DIR="$install_dir" \
-SLATE_VERSION=v1.0.1 \
+WRKFLW_INSTALL_DIR="$install_dir" \
+WRKFLW_VERSION=v1.0.1 \
 sh "$repo_root/install.sh"
 
-output=$("$install_dir/slate")
-[ "$output" = "upgraded slate" ] || {
+output=$("$install_dir/wrkflw")
+[ "$output" = "upgraded wrkflw" ] || {
   printf 'upgraded binary returned %s\n' "$output" >&2
   exit 1
 }
 
 printf '%064d  slate_linux_amd64.tar.gz\n' 0 > "$fixture_dir/checksums.txt"
 if PATH="$bin_dir:$PATH" \
-  SLATE_INSTALL_DIR="$install_dir" \
-  SLATE_VERSION=v1.0.2 \
+  WRKFLW_INSTALL_DIR="$install_dir" \
+  WRKFLW_VERSION=v1.0.2 \
   sh "$repo_root/install.sh"; then
   printf 'installer accepted an invalid checksum\n' >&2
   exit 1
 fi
 
-output=$("$install_dir/slate")
-[ "$output" = "upgraded slate" ] || {
+output=$("$install_dir/wrkflw")
+[ "$output" = "upgraded wrkflw" ] || {
   printf 'failed upgrade replaced the existing binary\n' >&2
   exit 1
 }

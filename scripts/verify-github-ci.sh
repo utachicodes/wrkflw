@@ -7,7 +7,7 @@ if [ -z "$commit_sha" ]; then
   exit 1
 fi
 
-api="https://api.github.com/repos/owainlewis/slate.do/commits/$commit_sha/check-runs?check_name=Required%20CI&filter=latest&per_page=10"
+api="https://api.github.com/repos/utachicodes/wrkflw/commits/$commit_sha/check-runs?check_name=Required%20CI&filter=latest&per_page=10"
 max_attempts="${VERIFY_GITHUB_CI_MAX_ATTEMPTS:-45}"
 poll_seconds="${VERIFY_GITHUB_CI_POLL_SECONDS:-20}"
 timeout_seconds="${VERIFY_GITHUB_CI_TIMEOUT_SECONDS:-900}"
