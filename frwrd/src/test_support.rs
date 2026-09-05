@@ -1,0 +1,228 @@
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+use uuid::Uuid;
+
+use crate::agent::{Request, RunError, RunOutput};
+
+pub struct FakeCli {
+    root: PathBuf,
+    bin: PathBuf,
+}
+
+impl FakeCli {
+    pub fn new(name: &str, script: &str) -> Self {
+        use std::io::Write;
+
+        let root = temp_dir(&format!("fake-{name}"));
+        let bin = root.join(name);
+        let tmp = root.join(format!("{name}.tmp"));
+        {
+            let mut file = std::fs::File::create(&tmp).unwrap();
+            file.write_all(script.as_bytes()).unwrap();
+            file.sync_all().unwrap();
+        }
+        make_executable(&tmp);
+        std::fs::rename(&tmp, &bin).unwrap();
+        Self { root, bin }
+    }
+
+    pub fn bin(&self) -> String {
+        self.bin.to_string_lossy().to_string()
+    }
+
+    fn keep_alive(&self) {}
+}
+
+impl Drop for FakeCli {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.root);
+    }
+}
+
+/// A minimal valid iMessage config over /fake paths, for tests that never
+/// touch the filesystem through it.
+pub fn test_config() -> crate::config::Config {
+    crate::config::Config {
+        channel: "imessage".to_string(),
+        channels: Vec::new(),
+        primary_delivery: None,
+        db_path: "/fake/chat.db".to_string(),
+        poll_interval: "1s".to_string(),
+        run_timeout: "1s".to_string(),
+        self_handles: vec!["me@icloud.com".to_string()],
+        allow_from: Vec::new(),
+        telegram_bot_token: None,
+        telegram_allow_user_ids: Vec::new(),
+        telegram_allow_chat_ids: Vec::new(),
+        slack_app_token: None,
+        slack_bot_token: None,
+        slack_allow_user_ids: Vec::new(),
+        voice_openai_api_key: None,
+        voice_name: crate::config::DEFAULT_VOICE_NAME.to_string(),
+        agent: "codex".to_string(),
+        routes: Vec::new(),
+        assistant_root: "/fake/assistant".to_string(),
+        jobs_dir: "/fake/jobs".to_string(),
+        jobs_agent: None,
+        jobs_max_timeout: "30m".to_string(),
+        jobs_run_dir_override: None,
+        jobs_max_workers: 2,
+        state_path_override: None,
+        audit_log_path_override: None,
+        database_path_override: None,
+        audit_log_content: false,
+        config_path: String::new(),
+        paths: crate::paths::FrwrdPaths::from_root(PathBuf::from("/fake")).unwrap(),
+        agent_commands: crate::config::AgentCommands::default(),
+        assistant_dir: "/fake/assistant".to_string(),
+    }
+}
+
+pub fn temp_dir(name: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("frwrd-test-{name}-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+pub fn temp_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("frwrd-test-{name}-{}", Uuid::new_v4()))
+}
+
+pub fn composed_prompt_parts(work_dir: &Path) -> (String, String) {
+    std::fs::write(
+        work_dir.join("SOUL.md"),
+        "Be useful.\n# frwrd-owned base policy\nThis heading is identity content.",
+    )
+    .unwrap();
+    let composer =
+        crate::prompt::Composer::load(work_dir.to_str().unwrap(), work_dir.to_str().unwrap())
+            .unwrap();
+    let prompt = composer.conversation(
+        "imessage",
+        "imessage:self:me",
+        "text",
+        &[],
+        "# User-owned system identity\nThis heading is message content.",
+    );
+    (prompt.instructions, prompt.content)
+}
+
+pub fn sh_arg(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+pub struct RunnerContract {
+    pub name: &'static str,
+    pub new_session: fn() -> ContractCase,
+    pub resumed_session: fn() -> ContractCase,
+    pub failed_run: fn() -> ContractCase,
+    pub timeout_run: fn() -> ContractCase,
+}
+
+pub struct ContractCase {
+    pub fake_cli: FakeCli,
+    pub runner: Box<dyn ContractRunner>,
+    pub request: ContractRequest,
+    pub timeout: Duration,
+}
+
+pub struct ContractRequest {
+    pub session_id: String,
+    pub is_new: bool,
+    pub work_dir: PathBuf,
+    pub instructions: String,
+    pub prompt: String,
+    pub images: Vec<PathBuf>,
+}
+
+impl ContractRequest {
+    fn as_request(&self) -> Request<'_> {
+        Request {
+            session_id: &self.session_id,
+            is_new: self.is_new,
+            work_dir: self.work_dir.to_str().unwrap(),
+            instructions: &self.instructions,
+            prompt: &self.prompt,
+            images: &self.images,
+        }
+    }
+}
+
+pub trait ContractRunner {
+    fn run<'a>(
+        &'a self,
+        req: Request<'a>,
+        timeout: Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<RunOutput, RunError>> + 'a>>;
+}
+
+pub async fn assert_runner_contract(contract: RunnerContract) {
+    let case = (contract.new_session)();
+    case.fake_cli.keep_alive();
+    let out = case
+        .runner
+        .run(case.request.as_request(), case.timeout)
+        .await
+        .unwrap_or_else(|err| panic!("{} new session failed: {err:?}", contract.name));
+    assert!(
+        !out.reply.trim().is_empty(),
+        "{} new session returned an empty reply",
+        contract.name
+    );
+
+    let case = (contract.resumed_session)();
+    case.fake_cli.keep_alive();
+    let out = case
+        .runner
+        .run(case.request.as_request(), case.timeout)
+        .await
+        .unwrap_or_else(|err| panic!("{} resumed session failed: {err:?}", contract.name));
+    assert!(
+        !out.reply.trim().is_empty(),
+        "{} resumed session returned an empty reply",
+        contract.name
+    );
+
+    let case = (contract.failed_run)();
+    case.fake_cli.keep_alive();
+    match case
+        .runner
+        .run(case.request.as_request(), case.timeout)
+        .await
+    {
+        Err(RunError::Failed(_)) => {}
+        Err(RunError::Timeout) => panic!("{} failed run timed out", contract.name),
+        Err(RunError::SessionMissing(msg)) => {
+            panic!(
+                "{} failed run reported missing session: {msg}",
+                contract.name
+            )
+        }
+        Ok(_) => panic!("{} failed run succeeded", contract.name),
+    }
+
+    let case = (contract.timeout_run)();
+    case.fake_cli.keep_alive();
+    match case
+        .runner
+        .run(case.request.as_request(), case.timeout)
+        .await
+    {
+        Err(RunError::Timeout) => {}
+        Err(RunError::Failed(msg)) => panic!("{} timeout failed: {msg}", contract.name),
+        Err(RunError::SessionMissing(msg)) => {
+            panic!("{} timeout reported missing session: {msg}", contract.name)
+        }
+        Ok(_) => panic!("{} timeout run succeeded", contract.name),
+    }
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut perms = std::fs::metadata(path).unwrap().permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(path, perms).unwrap();
+}

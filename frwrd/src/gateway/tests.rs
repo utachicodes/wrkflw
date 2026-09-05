@@ -1,0 +1,4178 @@
+use super::worker::{handle, run_with_periodic_activity, SESSION_SETUP_FAILURE};
+use super::*;
+use crate::agent::{FakeRunCall, FakeRunner};
+use crate::approval::Question;
+use crate::channel::{normalize_handle, thread_handle, InboundImage, InboundVoice};
+use crate::history::DeliveryStatus;
+use crate::imessage::{Poller, Sender};
+use crate::voice::{AudioClip, VoiceFuture, VoiceProvider};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use uuid::Uuid;
+
+struct FakeVoice;
+
+impl VoiceProvider for FakeVoice {
+    fn transcribe<'a>(&'a self, _clip: AudioClip) -> VoiceFuture<'a, String> {
+        Box::pin(async { Ok("voice request".to_string()) })
+    }
+
+    fn synthesize<'a>(&'a self, _text: &'a str) -> VoiceFuture<'a, AudioClip> {
+        Box::pin(async {
+            Ok(AudioClip {
+                bytes: vec![4, 5, 6],
+                filename: "reply.opus".to_string(),
+                mime_type: "audio/ogg".to_string(),
+            })
+        })
+    }
+}
+
+struct BlockingVoice {
+    release: tokio::sync::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+}
+
+impl VoiceProvider for BlockingVoice {
+    fn transcribe<'a>(&'a self, _clip: AudioClip) -> VoiceFuture<'a, String> {
+        Box::pin(async move {
+            let release = self.release.lock().await.take().unwrap();
+            release.await.unwrap();
+            Ok("slow voice request".to_string())
+        })
+    }
+
+    fn synthesize<'a>(&'a self, _text: &'a str) -> VoiceFuture<'a, AudioClip> {
+        Box::pin(async {
+            Ok(AudioClip {
+                bytes: vec![7],
+                filename: "reply.opus".to_string(),
+                mime_type: "audio/ogg".to_string(),
+            })
+        })
+    }
+}
+
+#[tokio::test]
+async fn periodic_activity_refreshes_until_operation_completes() {
+    let (complete, completed) = tokio::sync::oneshot::channel();
+    let complete = Arc::new(Mutex::new(Some(complete)));
+    let activity_count = Arc::new(AtomicUsize::new(0));
+    let count = activity_count.clone();
+
+    let output = tokio::time::timeout(
+        Duration::from_secs(1),
+        run_with_periodic_activity(completed, Duration::from_millis(1), move || {
+            let complete = complete.clone();
+            let count = count.clone();
+            async move {
+                if count.fetch_add(1, Ordering::SeqCst) + 1 == 3 {
+                    if let Some(complete) = complete.lock().unwrap().take() {
+                        let _ = complete.send("done");
+                    }
+                }
+            }
+        }),
+    )
+    .await
+    .expect("activity loop should finish")
+    .expect("operation should complete");
+
+    assert_eq!(output, "done");
+    assert!(activity_count.load(Ordering::SeqCst) >= 3);
+    let final_count = activity_count.load(Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    assert_eq!(activity_count.load(Ordering::SeqCst), final_count);
+}
+
+#[tokio::test]
+async fn stalled_activity_does_not_delay_operation() {
+    let output = tokio::time::timeout(
+        Duration::from_millis(100),
+        run_with_periodic_activity(
+            async {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                "done"
+            },
+            Duration::from_secs(1),
+            std::future::pending::<()>,
+        ),
+    )
+    .await
+    .expect("stalled activity should not block the operation");
+
+    assert_eq!(output, "done");
+}
+
+struct DropFlag(Arc<AtomicBool>);
+
+impl Drop for DropFlag {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+#[tokio::test]
+async fn shutdown_cancels_a_pending_poll_operation() {
+    let (send_shutdown, mut receive_shutdown) = watch::channel(false);
+
+    let operation_dropped = Arc::new(AtomicBool::new(false));
+    let drop_flag = operation_dropped.clone();
+    let operation = async move {
+        let _drop_flag = DropFlag(drop_flag);
+        std::future::pending::<()>().await;
+    };
+    tokio::spawn(async move {
+        tokio::task::yield_now().await;
+        let _ = send_shutdown.send(true);
+    });
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        wait_for_channel_shutdown_or(&mut receive_shutdown, operation),
+    )
+    .await
+    .expect("shutdown should interrupt a pending poll");
+
+    assert!(result.is_none());
+    assert!(operation_dropped.load(Ordering::SeqCst));
+}
+
+fn filter() -> Channel {
+    Channel::IMessage(crate::channel::IMessageChannel {
+        poller: Poller::new("fake-chat.db".to_string()),
+        sender: Sender::new(),
+        self_set: [("me@icloud.com".to_string(), "me@icloud.com".to_string())]
+            .into_iter()
+            .collect(),
+        allow_set: [("15551234567".to_string(), "+15551234567".to_string())]
+            .into_iter()
+            .collect(),
+        reply_marker: "\n\n-- sent by frwrd".to_string(),
+    })
+}
+
+fn msg(chat: &str, handle: &str, from_me: bool, text: &str) -> RawMessage {
+    RawMessage {
+        row_id: 1,
+        provider_event_id: None,
+        channel: "imessage",
+        handle: handle.to_string(),
+        chat_identifier: chat.to_string(),
+        text: text.to_string(),
+        voice: None,
+        images: Vec::new(),
+        is_from_me: from_me,
+        is_group: false,
+        is_supported: true,
+        thread_id: None,
+    }
+}
+
+fn group_msg(chat: &str, handle: &str, from_me: bool, text: &str) -> RawMessage {
+    RawMessage {
+        is_group: true,
+        ..msg(chat, handle, from_me, text)
+    }
+}
+
+fn temp_state_path() -> String {
+    std::env::temp_dir()
+        .join(format!("frwrd-gateway-test-{}.json", Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string()
+}
+
+fn temp_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("frwrd-gateway-{name}-{}", Uuid::new_v4()))
+}
+
+fn setup_failure_ctx(
+    store: Arc<Mutex<Store>>,
+    ack: Arc<Mutex<AckState>>,
+    assistant_dir: String,
+) -> Ctx {
+    let mut runners = HashMap::new();
+    runners.insert(
+        AgentBackend::Claude,
+        Runner::Claude(crate::claude::Runner {
+            bin: "claude".to_string(),
+        }),
+    );
+    let history_path = temp_path("setup-failure-history");
+    let mut history = History::open(history_path.to_str().unwrap()).unwrap();
+    let inbound_id = history
+        .record_inbound("imessage", "imessage:self:me", "imessage:10", "hello")
+        .unwrap();
+    assert_eq!(inbound_id, 1);
+    Ctx {
+        cfg: test_config(
+            &temp_path("setup-failure-state").to_string_lossy(),
+            &temp_path("setup-failure-sessions").to_string_lossy(),
+            &assistant_dir,
+        ),
+        store,
+        history: Arc::new(Mutex::new(history)),
+        ack,
+        runners: Arc::new(runners),
+        channel: filter(),
+        run_timeout: Duration::from_secs(1),
+        reply_marker: String::new(),
+        assistant_dir,
+        audit: Arc::new(AuditLog::new(
+            temp_path("setup-failure-audit")
+                .to_string_lossy()
+                .to_string(),
+            false,
+            "imessage",
+        )),
+        schedule_destination: None,
+        voice: None,
+        setup_failure_replies: Arc::new(Mutex::new(Vec::new())),
+        sent_replies: Arc::new(Mutex::new(Vec::new())),
+        sent_voice_replies: Arc::new(Mutex::new(Vec::new())),
+        send_failures_remaining: Arc::new(Mutex::new(0)),
+        send_failure_after: Arc::new(Mutex::new(None)),
+    }
+}
+
+fn setup_failure_job(row_id: i64) -> Job {
+    Job {
+        row_id,
+        inbound_id: 1,
+        thread: "imessage:self:me".to_string(),
+        target: "me@icloud.com".to_string(),
+        backend: AgentBackend::Claude,
+        text: "hello".to_string(),
+        reply_with_voice: false,
+        voice_attachment: None,
+        image_attachments: Vec::new(),
+        approval_origin: AnswerOrigin {
+            channel: "imessage".to_string(),
+            thread_key: "imessage:self:me".to_string(),
+            sender_key: "me".to_string(),
+            chat_key: "me".to_string(),
+        },
+    }
+}
+
+#[test]
+fn self_chat_accepted() {
+    let got = filter().accept(&msg("me@icloud.com", "", true, "hi"));
+    assert_eq!(
+        got,
+        Some((
+            "imessage:self:me@icloud.com".to_string(),
+            "me@icloud.com".to_string()
+        ))
+    );
+}
+
+#[test]
+fn allowlisted_dm_accepted() {
+    let got = filter().accept(&msg("+15551234567", "+15551234567", false, "hi"));
+    assert_eq!(
+        got,
+        Some((
+            "imessage:dm:+15551234567".to_string(),
+            "+15551234567".to_string()
+        ))
+    );
+}
+
+#[test]
+fn formatted_phone_allowlist_matches_normalized_handle() {
+    let got = filter().accept(&msg("+1 (555) 123-4567", "+1 (555) 123-4567", false, "hi"));
+    assert_eq!(
+        got,
+        Some((
+            "imessage:dm:+15551234567".to_string(),
+            "+1 (555) 123-4567".to_string()
+        ))
+    );
+}
+
+#[test]
+fn bare_phone_matches_allowlist_with_plus() {
+    let filter = Channel::IMessage(crate::channel::IMessageChannel {
+        poller: Poller::new("fake-chat.db".to_string()),
+        sender: Sender::new(),
+        self_set: HashMap::new(),
+        allow_set: ["+15551234567"]
+            .into_iter()
+            .map(|s| (normalize_handle(s), thread_handle(s)))
+            .collect(),
+        reply_marker: String::new(),
+    });
+
+    let got = filter.accept(&msg("15551234567", "15551234567", false, "hi"));
+
+    assert_eq!(
+        got,
+        Some((
+            "imessage:dm:+15551234567".to_string(),
+            "15551234567".to_string()
+        ))
+    );
+}
+
+#[test]
+fn plus_phone_matches_bare_allowlist() {
+    let filter = Channel::IMessage(crate::channel::IMessageChannel {
+        poller: Poller::new("fake-chat.db".to_string()),
+        sender: Sender::new(),
+        self_set: HashMap::new(),
+        allow_set: ["15551234567"]
+            .into_iter()
+            .map(|s| (normalize_handle(s), thread_handle(s)))
+            .collect(),
+        reply_marker: String::new(),
+    });
+
+    let got = filter.accept(&msg("+1 (555) 123-4567", "+1 (555) 123-4567", false, "hi"));
+
+    assert_eq!(
+        got,
+        Some((
+            "imessage:dm:15551234567".to_string(),
+            "+1 (555) 123-4567".to_string()
+        ))
+    );
+}
+
+#[test]
+fn email_self_chat_matching_is_case_insensitive() {
+    let got = filter().accept(&msg("ME@ICLOUD.COM", "", true, "hi"));
+    assert_eq!(
+        got,
+        Some((
+            "imessage:self:me@icloud.com".to_string(),
+            "ME@ICLOUD.COM".to_string()
+        ))
+    );
+}
+
+#[test]
+fn non_allowlisted_dropped() {
+    assert_eq!(
+        filter().accept(&msg("+19998887777", "+19998887777", false, "hi")),
+        None
+    );
+}
+
+#[test]
+fn own_reply_dropped() {
+    let m = msg("me@icloud.com", "", true, "an answer\n\n-- sent by frwrd");
+    assert_eq!(filter().accept(&m), None);
+}
+
+#[test]
+fn from_me_to_others_dropped() {
+    assert_eq!(
+        filter().accept(&msg("+12223334444", "+12223334444", true, "hey")),
+        None
+    );
+}
+
+#[test]
+fn empty_text_dropped() {
+    assert_eq!(
+        filter().accept(&msg("me@icloud.com", "", true, "   ")),
+        None
+    );
+}
+
+#[tokio::test]
+async fn delivery_fails_when_channel_produces_no_chunks() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("empty-delivery-sessions");
+    let assistant_dir = temp_path("empty-delivery-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+
+    assert!(!reply_to(&gateway.ctx, "me@icloud.com", " \t\n ").await);
+    assert!(gateway.ctx.sent_replies.lock().unwrap().is_empty());
+
+    let checkpoints = Arc::new(Mutex::new(Vec::new()));
+    let scheduled = scheduled_reply_to(
+        &gateway.ctx,
+        "me@icloud.com",
+        " \t\n ",
+        0,
+        jobs::DeliveryProgress::accepting_for_test(checkpoints.clone()),
+    )
+    .await;
+    assert!(!scheduled.delivered);
+    assert_eq!(scheduled.next_chunk, 0);
+    assert_eq!(
+        scheduled.error.as_deref(),
+        Some("channel produced no outbound chunks")
+    );
+    assert!(checkpoints.lock().unwrap().is_empty());
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[test]
+fn group_chat_dropped_even_from_allowlisted_sender() {
+    assert_eq!(
+        filter().accept(&group_msg("chat123456789", "+15551234567", false, "hi")),
+        None
+    );
+}
+
+#[test]
+fn ack_does_not_advance_past_in_flight_row() {
+    let mut ack = AckState::default();
+    ack.in_flight.insert(10);
+    ack.completed.insert(11);
+
+    assert_eq!(ack.next_cursor(), None);
+}
+
+#[test]
+fn ack_advances_completed_rows_below_first_in_flight() {
+    let mut ack = AckState::default();
+    ack.in_flight.insert(12);
+    ack.completed.insert(10);
+    ack.completed.insert(11);
+    ack.completed.insert(13);
+
+    assert_eq!(ack.next_cursor(), Some(11));
+    assert!(ack.completed.contains(&13));
+    assert!(ack.completed.contains(&10));
+    assert!(ack.completed.contains(&11));
+    ack.mark_persisted(11);
+    assert!(!ack.completed.contains(&10));
+    assert!(!ack.completed.contains(&11));
+}
+
+#[test]
+fn ack_advances_to_highest_completed_when_nothing_in_flight() {
+    let mut ack = AckState::default();
+    ack.completed.insert(10);
+    ack.completed.insert(14);
+
+    assert_eq!(ack.next_cursor(), Some(14));
+    assert_eq!(ack.completed.len(), 2);
+    ack.mark_persisted(14);
+    assert!(ack.completed.is_empty());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn cursor_save_failure_retries_without_rerunning_or_redelivering() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("cursor-retry-sessions");
+    let assistant_dir = temp_path("cursor-retry-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    gateway
+        .store
+        .lock()
+        .unwrap()
+        .fail_next_cursor_save_for_test();
+    let inbound = message(1, "me@icloud.com", "", true, "hello");
+
+    gateway.tick_fake(vec![inbound.clone()]).await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.ctx.sent_replies.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 0);
+    assert!(gateway.ack.lock().unwrap().completed.contains(&1));
+
+    gateway.tick_fake(vec![inbound]).await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.ctx.sent_replies.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 1);
+    assert!(gateway.ack.lock().unwrap().completed.is_empty());
+    assert_eq!(
+        Store::open_at(format!("{state_path}.db"), &state_path)
+            .unwrap()
+            .cursor("imessage")
+            .unwrap(),
+        1
+    );
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[test]
+fn setup_failure_completion_unblocks_later_completed_rows() {
+    let path = temp_state_path();
+    let store = Arc::new(Mutex::new(
+        Store::open_at(format!("{path}.db"), &path).unwrap(),
+    ));
+    let ack = Arc::new(Mutex::new(AckState::default()));
+    {
+        let mut ack = ack.lock().unwrap();
+        ack.in_flight.insert(10);
+        ack.completed.insert(11);
+    }
+
+    complete_row(&store, &ack, "imessage", 10);
+
+    assert_eq!(store.lock().unwrap().last_row(), 11);
+    let ack = ack.lock().unwrap();
+    assert!(ack.in_flight.is_empty());
+    assert!(ack.completed.is_empty());
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn completed_row_marker_failure_keeps_a_retryable_cursor_barrier() {
+    let path = temp_state_path();
+    let store = Arc::new(Mutex::new(
+        Store::open_at(format!("{path}.db"), &path).unwrap(),
+    ));
+    store
+        .lock()
+        .unwrap()
+        .fail_next_completed_row_save_for_test();
+    let ack = Arc::new(Mutex::new(AckState::default()));
+    {
+        let mut ack = ack.lock().unwrap();
+        ack.in_flight.insert(10);
+        ack.completed.insert(11);
+    }
+
+    complete_row(&store, &ack, "imessage", 10);
+
+    assert_eq!(store.lock().unwrap().last_row(), 0);
+    assert!(store
+        .lock()
+        .unwrap()
+        .completed_rows_after("imessage", 0)
+        .unwrap()
+        .is_empty());
+    {
+        let ack = ack.lock().unwrap();
+        assert!(!ack.in_flight.contains(&10));
+        assert!(ack.persisting.contains(&10));
+        assert!(!ack.completed.contains(&10));
+        assert!(ack.completed.contains(&11));
+    }
+
+    retry_completion_persistence(&store, &ack, "imessage");
+    persist_cursor(&store, &ack, "imessage");
+
+    assert_eq!(store.lock().unwrap().last_row(), 11);
+    let ack = ack.lock().unwrap();
+    assert!(ack.persisting.is_empty());
+    assert!(ack.completed.is_empty());
+
+    let _ = std::fs::remove_file(path);
+}
+
+#[tokio::test]
+async fn session_lookup_failure_completes_in_flight_row() {
+    let state_path = temp_state_path();
+    let store = Arc::new(Mutex::new(
+        Store::open_at(format!("{state_path}.db"), &state_path).unwrap(),
+    ));
+    store.lock().unwrap().fail_next_session_save_for_test();
+    store.lock().unwrap().fail_next_cursor_save_for_test();
+    let ack = Arc::new(Mutex::new(AckState::default()));
+    {
+        let mut ack = ack.lock().unwrap();
+        ack.in_flight.insert(10);
+        ack.completed.insert(11);
+    }
+    let ctx = setup_failure_ctx(
+        store,
+        ack.clone(),
+        temp_path("sessions").to_string_lossy().to_string(),
+    );
+
+    handle(&ctx, setup_failure_job(10)).await;
+
+    assert_eq!(
+        ctx.setup_failure_replies.lock().unwrap().as_slice(),
+        [SESSION_SETUP_FAILURE]
+    );
+    let ack = ack.lock().unwrap();
+    assert!(ack.in_flight.is_empty());
+    assert_eq!(ack.completed.iter().copied().collect::<Vec<_>>(), [10, 11]);
+
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+}
+
+#[tokio::test]
+async fn soul_read_failure_stops_backend_dispatch_and_completes_row() {
+    let state_path = temp_state_path();
+    let store = Arc::new(Mutex::new(
+        Store::open_at(format!("{state_path}.db"), &state_path).unwrap(),
+    ));
+    let sessions_dir = temp_path("soul-failure-sessions");
+    let assistant_dir = temp_path("soul-failure-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    std::fs::write(assistant_dir.join("SOUL.md"), [0xff, 0xfe]).unwrap();
+    let ack = Arc::new(Mutex::new(AckState::default()));
+    ack.lock().unwrap().in_flight.insert(10);
+    let mut ctx = setup_failure_ctx(
+        store.clone(),
+        ack.clone(),
+        sessions_dir.to_string_lossy().to_string(),
+    );
+    ctx.assistant_dir = assistant_dir.to_string_lossy().to_string();
+
+    handle(&ctx, setup_failure_job(10)).await;
+
+    assert_eq!(
+        ctx.setup_failure_replies.lock().unwrap().as_slice(),
+        [SESSION_SETUP_FAILURE]
+    );
+    assert_eq!(store.lock().unwrap().last_row(), 10);
+    assert!(ack.lock().unwrap().in_flight.is_empty());
+
+    let _ = std::fs::remove_file(state_path);
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn fake_channel_e2e_replies_once_ignores_unallowlisted_and_reuses_session() {
+    let state_path = temp_state_path();
+    let audit_path = format!("{state_path}.audit.jsonl");
+    let sessions_dir = temp_path("e2e-sessions");
+    let assistant_dir = temp_path("e2e-assistant");
+    std::fs::create_dir_all(assistant_dir.join("context")).unwrap();
+    std::fs::create_dir_all(assistant_dir.join("jobs")).unwrap();
+    std::fs::write(assistant_dir.join("SOUL.md"), "Be useful.\n").unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.routes = vec![crate::config::RouteRule {
+        thread: Some("imessage:dm:+15551234567".to_string()),
+        channel: None,
+        agent: "codex".to_string(),
+    }];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+
+    gateway
+        .tick_fake(vec![
+            message(1, "+19998887777", "+19998887777", false, "ignore me"),
+            message(2, "+15551234567", "+15551234567", false, "first"),
+            message(3, "+15551234567", "+15551234567", false, "second"),
+        ])
+        .await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    assert_eq!(gateway.store.lock().unwrap().last_row(), 3);
+    assert_eq!(
+        gateway.ctx.sent_replies.lock().unwrap().as_slice(),
+        [
+            (
+                "+15551234567".to_string(),
+                "fake reply: first\n\n-- sent by frwrd".to_string()
+            ),
+            (
+                "+15551234567".to_string(),
+                "fake reply: second\n\n-- sent by frwrd".to_string()
+            )
+        ]
+    );
+    {
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].session_id, "");
+        assert!(calls[0].is_new);
+        assert_eq!(
+            calls[0].work_dir,
+            std::fs::canonicalize(&assistant_dir)
+                .unwrap()
+                .to_string_lossy()
+        );
+        assert_eq!(
+            crate::prompt::current_message(&calls[0].prompt).as_deref(),
+            Some("first")
+        );
+        assert_eq!(calls[1].session_id, "fake-session");
+        assert!(!calls[1].is_new);
+        assert_eq!(calls[1].work_dir, calls[0].work_dir);
+        assert_eq!(
+            crate::prompt::current_message(&calls[1].prompt).as_deref(),
+            Some("second")
+        );
+        for call in calls.iter() {
+            let canonical = std::fs::canonicalize(&assistant_dir).unwrap();
+            assert!(call.instructions.starts_with("# frwrd-owned base policy"));
+            assert!(call.instructions.contains(r#"{"content":"Be useful."}"#));
+            assert!(call
+                .instructions
+                .contains(&format!(r#""assistant_root":"{}""#, canonical.display())));
+            assert!(call.instructions.contains(&format!(
+                r#""context":"{}""#,
+                canonical.join("context").display()
+            )));
+            assert!(call
+                .instructions
+                .contains(&format!(r#""jobs":"{}""#, canonical.join("jobs").display())));
+        }
+    }
+    let events = audit_events(&audit_path);
+    assert!(events.iter().any(|e| {
+        e.event == "message_ignored"
+            && e.row_id == Some(1)
+            && e.reason.as_deref() == Some("not_allowlisted")
+    }));
+    assert!(events.iter().any(|e| {
+        e.event == "message_accepted"
+            && e.row_id == Some(2)
+            && e.thread.as_deref() == Some("imessage:dm:+15551234567")
+            && e.backend.as_deref() == Some("codex")
+    }));
+    assert!(events.iter().any(|e| {
+        e.event == "backend_run_completed"
+            && e.row_id == Some(2)
+            && e.reply.as_ref().is_some_and(|c| c.text.is_none())
+    }));
+    assert!(events
+        .iter()
+        .any(|e| e.event == "reply_sent" && e.row_id == Some(2)));
+    assert!(events
+        .iter()
+        .any(|e| e.event == "message_completed" && e.row_id == Some(3)));
+
+    let replay_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut replay_gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    replay_gateway.ctx.runners = Arc::new(fake_runners(replay_calls.clone()));
+    replay_gateway
+        .tick_fake(vec![message(
+            3,
+            "+15551234567",
+            "+15551234567",
+            false,
+            "second",
+        )])
+        .await;
+    replay_gateway.queues.clear();
+    replay_gateway.drain_workers().await;
+
+    assert!(replay_gateway.ctx.sent_replies.lock().unwrap().is_empty());
+    assert!(replay_calls.lock().unwrap().is_empty());
+
+    let _ = std::fs::remove_file(state_path);
+    let _ = std::fs::remove_file(audit_path);
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn imessage_question_delivers_and_plain_number_resolves_once() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("imessage-approval-sessions");
+    let assistant_dir = temp_path("imessage-approval-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let question = approval_question(
+        "imessage",
+        "imessage:self:me@icloud.com",
+        "me@icloud.com",
+        "me@icloud.com",
+        "me@icloud.com",
+    );
+    let id = gateway.ask_user(question).await.unwrap();
+
+    run_messages(
+        &mut gateway,
+        vec![
+            message(1, "me@icloud.com", "", true, "2"),
+            message(2, "me@icloud.com", "", true, "2"),
+        ],
+    )
+    .await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    assert!(gateway.ctx.sent_replies.lock().unwrap()[0]
+        .1
+        .contains("1. Approve"));
+    assert_eq!(
+        gateway
+            .ctx
+            .history
+            .lock()
+            .unwrap()
+            .take_answer(&id, now_ms())
+            .unwrap()
+            .unwrap()
+            .value,
+        "reject"
+    );
+    run_messages(
+        &mut gateway,
+        vec![message(3, "me@icloud.com", "", true, "hello")],
+    )
+    .await;
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(
+        crate::prompt::current_message(&calls.lock().unwrap()[0].prompt).as_deref(),
+        Some("hello")
+    );
+    let events = audit_events(&format!("{state_path}.audit.jsonl"));
+    assert!(events
+        .iter()
+        .any(|event| event.event == "approval_answer_selected"));
+    assert!(events.iter().any(|event| {
+        event.event == "approval_answer_rejected"
+            && event.reason.as_deref() == Some(&format!("duplicate:{id}"))
+    }));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_question_rejects_wrong_topic_sender_and_duplicate() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("telegram-approval-sessions");
+    let assistant_dir = temp_path("telegram-approval-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.self_handles.clear();
+    cfg.allow_from.clear();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7, 8];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let question = approval_question("telegram", "telegram:dm:7:topic:9", "7", "7", "7:9");
+    let id = gateway.ask_user(question).await.unwrap();
+    let correlated = format!("{id} 1");
+    let mut wrong_topic = telegram_message(10, 7, 7, false, &correlated);
+    wrong_topic.thread_id = None;
+    let mut unallowlisted = telegram_message(11, 9, 7, false, &correlated);
+    unallowlisted.thread_id = Some(9);
+    let mut wrong_sender = telegram_message(12, 8, 7, false, &correlated);
+    wrong_sender.thread_id = Some(9);
+    let mut malformed = telegram_message(13, 7, 7, false, &format!("{id} junk"));
+    malformed.thread_id = Some(9);
+    let mut valid = telegram_message(14, 7, 7, false, "1");
+    valid.thread_id = Some(9);
+    let mut duplicate = telegram_message(15, 7, 7, false, &correlated);
+    duplicate.thread_id = Some(9);
+
+    run_messages(
+        &mut gateway,
+        vec![
+            wrong_topic,
+            unallowlisted,
+            wrong_sender,
+            malformed,
+            valid,
+            duplicate,
+        ],
+    )
+    .await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    let events = audit_events(&format!("{state_path}.audit.jsonl"));
+    assert!(events.iter().any(|event| {
+        event.event == "approval_answer_rejected"
+            && event.reason.as_deref() == Some(&format!("mismatched:{id}"))
+    }));
+    assert!(events
+        .iter()
+        .any(|event| { event.event == "message_ignored" && event.row_id == Some(11) }));
+    assert!(events.iter().any(|event| {
+        event.event == "approval_answer_rejected"
+            && event.reason.as_deref() == Some(&format!("duplicate:{id}"))
+    }));
+    assert!(events.iter().any(|event| {
+        event.event == "approval_answer_rejected"
+            && event.reason.as_deref() == Some(&format!("invalid_choice:{id}"))
+    }));
+    assert_eq!(
+        gateway
+            .ctx
+            .history
+            .lock()
+            .unwrap()
+            .take_answer(&id, now_ms())
+            .unwrap()
+            .unwrap()
+            .value,
+        "approve"
+    );
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn failed_question_delivery_keeps_the_durable_pending_question() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("approval-delivery-sessions");
+    let assistant_dir = temp_path("approval-delivery-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    *gateway.ctx.send_failures_remaining.lock().unwrap() = 1;
+    let question = approval_question(
+        "imessage",
+        "imessage:self:me@icloud.com",
+        "me@icloud.com",
+        "me@icloud.com",
+        "me@icloud.com",
+    );
+    let id = question.id.clone();
+
+    assert!(gateway.ask_user(question).await.is_err());
+    assert!(matches!(
+        gateway.ctx.history.lock().unwrap().answer_question(
+            &AnswerOrigin {
+                channel: "imessage".to_string(),
+                thread_key: "imessage:self:me@icloud.com".to_string(),
+                sender_key: "me@icloud.com".to_string(),
+                chat_key: "me@icloud.com".to_string(),
+            },
+            &format!("{id} 1"),
+            now_ms(),
+        ),
+        Ok(AnswerOutcome::Selected(_))
+    ));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn expired_answer_is_audited_without_reaching_the_backend() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("approval-expiry-sessions");
+    let assistant_dir = temp_path("approval-expiry-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let mut question = approval_question(
+        "imessage",
+        "imessage:self:me@icloud.com",
+        "me@icloud.com",
+        "me@icloud.com",
+        "me@icloud.com",
+    );
+    let created_at = now_ms();
+    question.expires_at_ms = created_at + 10;
+    let id = question.id.clone();
+    gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .create_question(&question, created_at)
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(20)).await;
+
+    run_messages(
+        &mut gateway,
+        vec![message(1, "me@icloud.com", "", true, &format!("{id} 1"))],
+    )
+    .await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    assert!(audit_events(&format!("{state_path}.audit.jsonl"))
+        .iter()
+        .any(|event| {
+            event.event == "approval_answer_rejected"
+                && event.reason.as_deref() == Some(&format!("expired:{id}"))
+        }));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn missing_backend_session_rotates_and_rehydrates_once() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("missing-session-rehydration");
+    let assistant_dir = temp_path("missing-session-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let missing = Arc::new(AtomicBool::new(true));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    let mut runners = HashMap::new();
+    runners.insert(
+        AgentBackend::Codex,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Codex,
+            session_id: "fake-session".to_string(),
+            calls: calls.clone(),
+            before_return: None,
+            wait_for_release: None,
+            failure: None,
+            resume_missing_once: Some(missing),
+        }),
+    );
+    gateway.ctx.runners = Arc::new(runners);
+
+    run_messages(
+        &mut gateway,
+        vec![message(1, "+15551234567", "+15551234567", false, "first")],
+    )
+    .await;
+    let mut second = message(2, "+15551234567", "+15551234567", false, "second");
+    second.images.push(InboundImage {
+        locator: "image-file".to_string(),
+        file_size: Some(12),
+        mime_type: Some("image/png".to_string()),
+        data: Some(b"\x89PNG\r\n\x1a\nbody".to_vec()),
+    });
+    run_messages(&mut gateway, vec![second]).await;
+
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert!(!calls[1].is_new);
+    assert_eq!(
+        crate::prompt::current_message(&calls[1].prompt).as_deref(),
+        Some("second")
+    );
+    assert!(calls[2].is_new);
+    assert_eq!(calls[1].images.len(), 1);
+    assert_eq!(calls[2].images, calls[1].images);
+    assert!(!calls[1].images[0].exists());
+    assert!(calls[2]
+        .prompt
+        .contains(r#"{"role":"user","content":"first"}"#));
+    assert!(calls[2]
+        .prompt
+        .contains(r#"{"role":"assistant","content":"fake reply: first"}"#));
+    assert!(calls[2]
+        .prompt
+        .ends_with(r#""current_message":{"role":"user","content":"second"}}"#));
+    drop(calls);
+
+    let events = audit_events(&format!("{state_path}.audit.jsonl"));
+    assert!(events
+        .iter()
+        .any(|event| event.event == "backend_session_missing"));
+    assert!(events.iter().any(|event| {
+        event.event == "backend_run_started"
+            && event.row_id == Some(2)
+            && event.is_new_session == Some(true)
+            && event.rehydrated_messages == Some(2)
+    }));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn backend_switch_and_clear_start_fresh_sessions_with_history() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("switch-rehydration");
+    let assistant_dir = temp_path("switch-rehydration-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let codex_calls = Arc::new(Mutex::new(Vec::new()));
+    let claude_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    let mut runners = HashMap::new();
+    runners.insert(
+        AgentBackend::Codex,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Codex,
+            session_id: "codex-session".to_string(),
+            calls: codex_calls.clone(),
+            before_return: None,
+            wait_for_release: None,
+            failure: None,
+            resume_missing_once: None,
+        }),
+    );
+    runners.insert(
+        AgentBackend::Claude,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Claude,
+            session_id: "claude-session".to_string(),
+            calls: claude_calls.clone(),
+            before_return: None,
+            wait_for_release: None,
+            failure: None,
+            resume_missing_once: None,
+        }),
+    );
+    gateway.ctx.runners = Arc::new(runners);
+
+    run_messages(
+        &mut gateway,
+        vec![message(1, "+15551234567", "+15551234567", false, "first")],
+    )
+    .await;
+    gateway.cfg.routes = vec![crate::config::RouteRule {
+        thread: Some("imessage:dm:+15551234567".to_string()),
+        channel: None,
+        agent: "claude".to_string(),
+    }];
+    run_messages(
+        &mut gateway,
+        vec![message(2, "+15551234567", "+15551234567", false, "switch")],
+    )
+    .await;
+    run_messages(
+        &mut gateway,
+        vec![message(3, "+15551234567", "+15551234567", false, "/clear")],
+    )
+    .await;
+    run_messages(
+        &mut gateway,
+        vec![message(
+            4,
+            "+15551234567",
+            "+15551234567",
+            false,
+            "after clear",
+        )],
+    )
+    .await;
+
+    assert_eq!(codex_calls.lock().unwrap().len(), 1);
+    let claude_calls = claude_calls.lock().unwrap();
+    assert_eq!(claude_calls.len(), 2);
+    assert!(claude_calls[0].is_new);
+    assert!(claude_calls[0].prompt.contains("first"));
+    assert!(claude_calls[0]
+        .prompt
+        .ends_with(r#""current_message":{"role":"user","content":"switch"}}"#));
+    assert!(claude_calls[1].is_new);
+    assert!(claude_calls[1].prompt.contains("switch"));
+    assert!(claude_calls[1]
+        .prompt
+        .ends_with(r#""current_message":{"role":"user","content":"after clear"}}"#));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn canonical_history_failure_prevents_backend_dispatch_and_cursor_advance() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("history-failure-sessions");
+    let assistant_dir = temp_path("history-failure-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .execute_batch_for_test("DROP TABLE messages");
+    gateway
+        .tick_fake(vec![message(1, "me@icloud.com", "", true, "hello")])
+        .await;
+
+    assert!(gateway.handles.is_empty());
+    assert!(calls.lock().unwrap().is_empty());
+    assert!(gateway.ctx.sent_replies.lock().unwrap().is_empty());
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 0);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn pending_outbound_is_delivered_after_restart_without_backend_rerun() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("history-recovery-sessions");
+    let assistant_dir = temp_path("history-recovery-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let config = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    let mut history = History::open(&config.paths.database).unwrap();
+    let inbound_id = history
+        .record_inbound(
+            "imessage",
+            "imessage:self:me@icloud.com",
+            "imessage:1",
+            "hello",
+        )
+        .unwrap();
+    history
+        .record_outbound(
+            inbound_id,
+            OutboundOrigin::Backend,
+            Some("codex"),
+            "stored reply",
+        )
+        .unwrap();
+    drop(history);
+    let mut gateway = Gateway::new(config).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    gateway
+        .tick_fake(vec![message(1, "me@icloud.com", "", true, "hello")])
+        .await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    assert_eq!(
+        gateway.ctx.sent_replies.lock().unwrap().as_slice(),
+        [(
+            "me@icloud.com".to_string(),
+            "stored reply\n\n-- sent by frwrd".to_string()
+        )]
+    );
+    assert_eq!(
+        gateway
+            .ctx
+            .history
+            .lock()
+            .unwrap()
+            .outbound_for(inbound_id)
+            .unwrap()
+            .unwrap()
+            .status,
+        DeliveryStatus::Delivered
+    );
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 1);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn recovered_outbound_still_presents_authored_schedule_review() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("schedule-history-recovery-sessions");
+    let assistant_dir = temp_path("schedule-history-recovery-assistant");
+    let jobs_dir = assistant_dir.join("jobs");
+    let workdir = assistant_dir.join("work");
+    std::fs::create_dir_all(&jobs_dir).unwrap();
+    std::fs::create_dir_all(&workdir).unwrap();
+    let mut config = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    config.jobs_dir = jobs_dir.to_string_lossy().to_string();
+    std::fs::write(
+        jobs_dir.join("recovered-schedule.md"),
+        format!(
+            "+++\nversion = 1\ntimeout = \"5s\"\nworkdir = {:?}\nbackend = \"codex\"\n\n[[triggers]]\nid = \"morning\"\nkind = \"cron\"\nschedule = \"0 8 * * *\"\ntimezone = \"Europe/London\"\nenabled = true\n+++\n\nPrepare a note.\n",
+            workdir.to_string_lossy()
+        ),
+    )
+    .unwrap();
+    let mut history = History::open(&config.paths.database).unwrap();
+    let inbound_id = history
+        .record_inbound(
+            "imessage",
+            "imessage:dm:+15551234567",
+            "imessage:1",
+            "create a schedule",
+        )
+        .unwrap();
+    history
+        .record_outbound(
+            inbound_id,
+            OutboundOrigin::Backend,
+            Some("codex"),
+            "stored reply",
+        )
+        .unwrap();
+    drop(history);
+
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(config).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    gateway.ctx.schedule_destination = Some(PrimaryDestination {
+        channel: "imessage".to_string(),
+        target: "+15551234567".to_string(),
+    });
+    gateway
+        .tick_fake(vec![message(
+            1,
+            "+15551234567",
+            "+15551234567",
+            false,
+            "create a schedule",
+        )])
+        .await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    let replies = gateway.ctx.sent_replies.lock().unwrap();
+    assert!(replies
+        .iter()
+        .any(|(_, text)| text.contains("stored reply")));
+    assert!(replies.iter().any(|(_, text)| {
+        text.contains("Review schedule activation") && text.contains("recovered-schedule")
+    }));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn session_state_save_failure_keeps_reply_for_restart_without_backend_rerun() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("session-save-failure-sessions");
+    let assistant_dir = temp_path("session-save-failure-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let first_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    let store = gateway.store.clone();
+    gateway.ctx.runners = Arc::new(fake_runners_with_hook(
+        first_calls.clone(),
+        Some(Arc::new(move || {
+            store.lock().unwrap().fail_next_session_save_for_test();
+        })),
+    ));
+    gateway
+        .tick_fake(vec![message(1, "me@icloud.com", "", true, "hello")])
+        .await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    assert_eq!(first_calls.lock().unwrap().len(), 1);
+    assert!(gateway.ctx.sent_replies.lock().unwrap().is_empty());
+    let inbound_id = gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .record_inbound(
+            "imessage",
+            "imessage:self:me@icloud.com",
+            "imessage:1",
+            "hello",
+        )
+        .unwrap();
+    assert_eq!(
+        gateway
+            .ctx
+            .history
+            .lock()
+            .unwrap()
+            .outbound_for(inbound_id)
+            .unwrap()
+            .unwrap()
+            .status,
+        DeliveryStatus::Pending
+    );
+    drop(gateway);
+
+    let second_calls = Arc::new(Mutex::new(Vec::new()));
+    let mut restarted = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    restarted.ctx.runners = Arc::new(fake_runners(second_calls.clone()));
+    restarted
+        .tick_fake(vec![message(1, "me@icloud.com", "", true, "hello")])
+        .await;
+    restarted.queues.clear();
+    restarted.drain_workers().await;
+
+    assert!(second_calls.lock().unwrap().is_empty());
+    assert_eq!(
+        restarted.ctx.sent_replies.lock().unwrap().as_slice(),
+        [(
+            "me@icloud.com".to_string(),
+            "fake reply: hello\n\n-- sent by frwrd".to_string()
+        )]
+    );
+    assert_eq!(
+        restarted.store.lock().unwrap().cursor("imessage").unwrap(),
+        1
+    );
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn exhausted_delivery_batch_retries_without_blocking_cursor() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("delivery-retry-sessions");
+    let assistant_dir = temp_path("delivery-retry-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    *gateway.ctx.send_failures_remaining.lock().unwrap() =
+        gateway.ctx.channel.delivery_semantics().retry_attempts;
+    gateway
+        .tick_fake(vec![message(1, "me@icloud.com", "", true, "hello")])
+        .await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.ctx.sent_replies.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 1);
+    let inbound_id = gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .record_inbound(
+            "imessage",
+            "imessage:self:me@icloud.com",
+            "imessage:1",
+            "hello",
+        )
+        .unwrap();
+    assert_eq!(
+        gateway
+            .ctx
+            .history
+            .lock()
+            .unwrap()
+            .outbound_for(inbound_id)
+            .unwrap()
+            .unwrap()
+            .status,
+        DeliveryStatus::Delivered
+    );
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_filters_before_agent_and_replies_to_originating_chat() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("telegram-sessions");
+    let assistant_dir = temp_path("telegram-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.self_handles.clear();
+    cfg.allow_from.clear();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+
+    gateway
+        .tick_fake(vec![
+            {
+                let mut message = telegram_image_message(10, 8, 8, "ignore me");
+                message.images[0].data = Some(b"not an image".to_vec());
+                message
+            },
+            telegram_message(11, 7, 7, false, "hello"),
+            telegram_message(12, 7, -100, true, "group"),
+        ])
+        .await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    assert_eq!(
+        gateway.store.lock().unwrap().cursor("telegram").unwrap(),
+        12
+    );
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(
+        crate::prompt::current_message(&calls.lock().unwrap()[0].prompt).as_deref(),
+        Some("hello")
+    );
+    assert_eq!(
+        gateway.ctx.sent_replies.lock().unwrap().as_slice(),
+        [("7".to_string(), "fake reply: hello".to_string())]
+    );
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_topic_gets_own_thread_and_reply_targets_the_topic() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("telegram-topic-sessions");
+    let assistant_dir = temp_path("telegram-topic-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.self_handles.clear();
+    cfg.allow_from.clear();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+
+    let mut topic_message = telegram_message(20, 7, 7, false, "in topic");
+    topic_message.thread_id = Some(99);
+    gateway
+        .tick_fake(vec![
+            topic_message,
+            telegram_message(21, 7, 7, false, "in main"),
+        ])
+        .await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    assert_eq!(calls.lock().unwrap().len(), 2);
+    assert!(calls.lock().unwrap().iter().all(|call| call.is_new));
+    let replies = gateway.ctx.sent_replies.lock().unwrap().clone();
+    assert!(replies.contains(&("7:99".to_string(), "fake reply: in topic".to_string())));
+    assert!(replies.contains(&("7".to_string(), "fake reply: in main".to_string())));
+    let events = audit_events(&format!("{state_path}.audit.jsonl"));
+    assert!(events.iter().any(|e| {
+        e.event == "message_accepted" && e.thread.as_deref() == Some("telegram:dm:7:topic:99")
+    }));
+    assert!(events.iter().any(|e| {
+        e.event == "message_accepted" && e.thread.as_deref() == Some("telegram:dm:7")
+    }));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn enabled_channels_process_concurrently_with_isolated_state_and_origin_replies() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("multi-channel-sessions");
+    let assistant_dir = temp_path("multi-channel-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channels = vec!["imessage".to_string(), "telegram".to_string()];
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut group = GatewayGroup::new(cfg).unwrap();
+    for gateway in &mut group.gateways {
+        gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    }
+
+    let (imessage, telegram) = group.gateways.split_at_mut(1);
+    tokio::join!(
+        imessage[0].tick_fake(vec![message(
+            5,
+            "+15551234567",
+            "+15551234567",
+            false,
+            "from imessage"
+        )],),
+        telegram[0].tick_fake(vec![telegram_message(5, 7, 7, false, "from telegram")])
+    );
+    imessage[0].queues.clear();
+    telegram[0].queues.clear();
+    tokio::join!(imessage[0].drain_workers(), telegram[0].drain_workers());
+
+    let store = imessage[0].store.lock().unwrap();
+    assert_eq!(store.cursor("imessage").unwrap(), 5);
+    assert_eq!(store.cursor("telegram").unwrap(), 5);
+    drop(store);
+    assert_eq!(
+        imessage[0].ctx.sent_replies.lock().unwrap().as_slice(),
+        [(
+            "+15551234567".to_string(),
+            "fake reply: from imessage\n\n-- sent by frwrd".to_string()
+        )]
+    );
+    assert_eq!(
+        telegram[0].ctx.sent_replies.lock().unwrap().as_slice(),
+        [("7".to_string(), "fake reply: from telegram".to_string())]
+    );
+    let prompts = calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|call| crate::prompt::current_message(&call.prompt))
+        .collect::<Vec<_>>();
+    assert!(prompts.contains(&"from imessage".to_string()));
+    assert!(prompts.contains(&"from telegram".to_string()));
+    let mut store = Store::open_at(format!("{state_path}.db"), &state_path).unwrap();
+    assert_eq!(
+        store
+            .session_for("imessage:dm:+15551234567", "codex", "unused".to_string())
+            .unwrap(),
+        ("fake-session".to_string(), false)
+    );
+    assert_eq!(
+        store
+            .session_for("telegram:dm:7", "codex", "unused".to_string())
+            .unwrap(),
+        ("fake-session".to_string(), false)
+    );
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_voice_is_transcribed_and_gets_text_and_voice_replies() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("voice-sessions");
+    let assistant_dir = temp_path("voice-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    gateway.ctx.voice = Some(Voice::with_provider(Arc::new(FakeVoice)));
+
+    run_messages(&mut gateway, vec![telegram_voice_message(1, 7, 7)]).await;
+
+    assert_eq!(
+        crate::prompt::current_message(&calls.lock().unwrap()[0].prompt).as_deref(),
+        Some("voice request")
+    );
+    assert_eq!(
+        gateway.ctx.sent_replies.lock().unwrap().as_slice(),
+        [("7".to_string(), "fake reply: voice request".to_string())]
+    );
+    assert_eq!(
+        gateway.ctx.sent_voice_replies.lock().unwrap().as_slice(),
+        [("7".to_string(), vec![4, 5, 6])]
+    );
+    assert_eq!(gateway.store.lock().unwrap().cursor("telegram").unwrap(), 1);
+    let history = gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .recent_messages_before("telegram", "telegram:dm:7", i64::MAX, 10)
+        .unwrap();
+    assert!(history
+        .iter()
+        .any(|message| message.content == "voice request"));
+    assert!(history
+        .iter()
+        .all(|message| message.content != "[Voice message]"));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_image_is_available_to_the_agent_and_removed_after_the_turn() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("image-sessions");
+    let assistant_dir = temp_path("image-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let observed = Arc::new(Mutex::new(false));
+    let hook_calls = calls.clone();
+    let hook_observed = observed.clone();
+    let hook = Arc::new(move || {
+        let calls = hook_calls.lock().unwrap();
+        let image = &calls.last().unwrap().images[0];
+        assert!(image.is_file());
+        assert!(std::fs::read(image)
+            .unwrap()
+            .starts_with(b"\x89PNG\r\n\x1a\n"));
+        *hook_observed.lock().unwrap() = true;
+    });
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners_with_hook(calls.clone(), Some(hook)));
+
+    run_messages(
+        &mut gateway,
+        vec![
+            telegram_image_message(1, 7, 7, ""),
+            telegram_image_message(2, 7, 7, "/help"),
+            telegram_image_message(3, 7, 7, "/stop"),
+        ],
+    )
+    .await;
+
+    assert!(*observed.lock().unwrap());
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 3);
+    assert_eq!(
+        crate::prompt::current_message(&calls[0].prompt).as_deref(),
+        Some("[Image attachment]")
+    );
+    assert_eq!(
+        crate::prompt::current_message(&calls[1].prompt).as_deref(),
+        Some("/help")
+    );
+    assert_eq!(
+        crate::prompt::current_message(&calls[2].prompt).as_deref(),
+        Some("/stop")
+    );
+    assert!(calls.iter().all(|call| call.images.len() == 1));
+    assert!(calls.iter().all(|call| !call.images[0].exists()));
+    drop(calls);
+    assert_eq!(gateway.store.lock().unwrap().cursor("telegram").unwrap(), 3);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn slack_images_reach_every_agent_backend_and_are_removed_after_each_turn() {
+    for (backend, name) in [
+        (AgentBackend::Claude, "claude"),
+        (AgentBackend::Codex, "codex"),
+        (AgentBackend::Pi, "pi"),
+    ] {
+        let state_path = temp_state_path();
+        let sessions_dir = temp_path(&format!("slack-{name}-image-sessions"));
+        let assistant_dir = temp_path(&format!("slack-{name}-image-assistant"));
+        std::fs::create_dir_all(&assistant_dir).unwrap();
+        let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+        let mut cfg = test_config(
+            &state_path,
+            sessions_dir.to_str().unwrap(),
+            assistant_dir.to_str().unwrap(),
+        );
+        cfg.channel = "slack".to_string();
+        cfg.agent = name.to_string();
+        cfg.slack_app_token = Some("xapp-test".to_string());
+        cfg.slack_bot_token = Some("xoxb-test".to_string());
+        cfg.slack_allow_user_ids = vec!["U1".to_string()];
+        let mut gateway = Gateway::new(cfg).unwrap();
+        gateway.ctx.runners = Arc::new(HashMap::from([(
+            backend,
+            Runner::Fake(FakeRunner {
+                backend,
+                session_id: "fake-session".to_string(),
+                calls: calls.clone(),
+                before_return: None,
+                wait_for_release: None,
+                failure: None,
+                resume_missing_once: None,
+            }),
+        )]));
+
+        run_messages(
+            &mut gateway,
+            vec![slack_image_message(1, "U1", "", Some(valid_png()))],
+        )
+        .await;
+
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "{name}");
+        assert_eq!(
+            crate::prompt::current_message(&calls[0].prompt).as_deref(),
+            Some("[Image attachment]"),
+            "{name}"
+        );
+        assert_eq!(calls[0].images.len(), 1, "{name}");
+        assert!(!calls[0].images[0].exists(), "{name}");
+        drop(calls);
+
+        let _ = std::fs::remove_file(&state_path);
+        let _ = std::fs::remove_file(format!("{state_path}.db"));
+        let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+        let _ = std::fs::remove_file(format!("{state_path}.slack-inbox.db"));
+        let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+        let _ = std::fs::remove_dir_all(sessions_dir);
+        let _ = std::fs::remove_dir_all(assistant_dir);
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn imessage_images_reach_every_agent_backend_and_are_removed_after_each_turn() {
+    for (backend, name) in [
+        (AgentBackend::Claude, "claude"),
+        (AgentBackend::Codex, "codex"),
+        (AgentBackend::Pi, "pi"),
+    ] {
+        let state_path = temp_state_path();
+        let sessions_dir = temp_path(&format!("imessage-{name}-image-sessions"));
+        let assistant_dir = temp_path(&format!("imessage-{name}-image-assistant"));
+        std::fs::create_dir_all(&assistant_dir).unwrap();
+        let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+        let mut cfg = test_config(
+            &state_path,
+            sessions_dir.to_str().unwrap(),
+            assistant_dir.to_str().unwrap(),
+        );
+        cfg.agent = name.to_string();
+        let mut gateway = Gateway::new(cfg).unwrap();
+        gateway.ctx.runners = Arc::new(HashMap::from([(
+            backend,
+            Runner::Fake(FakeRunner {
+                backend,
+                session_id: "fake-session".to_string(),
+                calls: calls.clone(),
+                before_return: None,
+                wait_for_release: None,
+                failure: None,
+                resume_missing_once: None,
+            }),
+        )]));
+        let mut inbound = message(1, "+15551234567", "+15551234567", false, "");
+        inbound.images.push(InboundImage {
+            locator: "inline.png".to_string(),
+            file_size: Some(12),
+            mime_type: Some("image/png".to_string()),
+            data: Some(valid_png()),
+        });
+
+        run_messages(&mut gateway, vec![inbound]).await;
+
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 1, "{name}");
+        assert_eq!(
+            crate::prompt::current_message(&calls[0].prompt).as_deref(),
+            Some("[Image attachment]"),
+            "{name}"
+        );
+        assert_eq!(calls[0].images.len(), 1, "{name}");
+        assert!(!calls[0].images[0].exists(), "{name}");
+        drop(calls);
+
+        let _ = std::fs::remove_file(&state_path);
+        let _ = std::fs::remove_file(format!("{state_path}.db"));
+        let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+        let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+        let _ = std::fs::remove_dir_all(sessions_dir);
+        let _ = std::fs::remove_dir_all(assistant_dir);
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn imessage_worker_reads_ordered_local_images_and_rejects_bad_attachments() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("imessage-local-image-sessions");
+    let assistant_dir = temp_path("imessage-local-image-assistant");
+    let messages_dir = temp_path("imessage-local-messages");
+    let attachments = messages_dir.join("Attachments");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    std::fs::create_dir_all(&attachments).unwrap();
+    let png = attachments.join("first.png");
+    let jpeg = attachments.join("second.jpg");
+    let webp = attachments.join("third.webp");
+    let pdf = attachments.join("document.pdf");
+    std::fs::write(&png, valid_png()).unwrap();
+    std::fs::write(&jpeg, b"\xff\xd8\xffbody").unwrap();
+    std::fs::write(&webp, b"RIFF\x04\x00\x00\x00WEBPbody").unwrap();
+    std::fs::write(&pdf, b"%PDF").unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.db_path = messages_dir.join("chat.db").to_string_lossy().to_string();
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let mut valid = message(1, "+15551234567", "+15551234567", false, "compare these");
+    valid.images = vec![
+        InboundImage {
+            locator: "~/Library/Messages/Attachments/first.png".to_string(),
+            file_size: Some(valid_png().len()),
+            mime_type: Some("image/png".to_string()),
+            data: None,
+        },
+        InboundImage {
+            locator: jpeg.to_string_lossy().to_string(),
+            file_size: Some(7),
+            mime_type: Some("image/jpeg".to_string()),
+            data: None,
+        },
+        InboundImage {
+            locator: "third.webp".to_string(),
+            file_size: Some(16),
+            mime_type: Some("image/webp".to_string()),
+            data: None,
+        },
+    ];
+    let mut missing = message(2, "+15551234567", "+15551234567", false, "missing");
+    missing.images.push(InboundImage {
+        locator: "missing.png".to_string(),
+        file_size: None,
+        mime_type: Some("image/png".to_string()),
+        data: None,
+    });
+    let mut unsupported = message(3, "+15551234567", "+15551234567", false, "unsupported");
+    unsupported.images.push(InboundImage {
+        locator: pdf.to_string_lossy().to_string(),
+        file_size: Some(4),
+        mime_type: Some("application/pdf".to_string()),
+        data: None,
+    });
+
+    run_messages(&mut gateway, vec![valid, missing, unsupported]).await;
+
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].images.len(), 3);
+    assert_eq!(calls[0].images[0].extension().unwrap(), "png");
+    assert_eq!(calls[0].images[1].extension().unwrap(), "jpg");
+    assert_eq!(calls[0].images[2].extension().unwrap(), "webp");
+    assert!(calls[0].images.iter().all(|path| !path.exists()));
+    drop(calls);
+    let replies = gateway.ctx.sent_replies.lock().unwrap();
+    assert_eq!(replies.len(), 3);
+    assert!(replies[1].1.contains("JPEG, PNG, or WebP"));
+    assert!(replies[2].1.contains("JPEG, PNG, or WebP"));
+    drop(replies);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 3);
+    let audit = std::fs::read_to_string(format!("{state_path}.audit.jsonl")).unwrap();
+    assert!(!audit.contains(messages_dir.to_string_lossy().as_ref()));
+    assert!(!audit.contains("missing.png"));
+    assert!(!audit.contains("document.pdf"));
+    let history = gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .recent_messages_before("imessage", "imessage:dm:+15551234567", i64::MAX, 10)
+        .unwrap();
+    assert!(history.iter().all(|message| {
+        !message.content.contains("Attachments")
+            && !message.content.contains("missing.png")
+            && !message.content.contains("document.pdf")
+    }));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+    let _ = std::fs::remove_dir_all(messages_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn rejected_imessage_sender_does_not_open_local_attachments() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("imessage-rejected-image-sessions");
+    let assistant_dir = temp_path("imessage-rejected-image-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let mut inbound = message(1, "+15550000000", "+15550000000", false, "inspect");
+    inbound.images.push(InboundImage {
+        locator: "/private/outside/missing.png".to_string(),
+        file_size: None,
+        mime_type: Some("image/png".to_string()),
+        data: None,
+    });
+
+    run_messages(&mut gateway, vec![inbound]).await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    assert!(gateway.ctx.sent_replies.lock().unwrap().is_empty());
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 1);
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn imessage_pending_filename_defers_only_accepted_rows_and_cannot_block_forever() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("imessage-pending-filename-sessions");
+    let assistant_dir = temp_path("imessage-pending-filename-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+
+    let mut rejected = message(1, "+15550000000", "+15550000000", false, "ignored");
+    rejected.images.push(InboundImage {
+        locator: String::new(),
+        file_size: Some(24),
+        mime_type: Some("image/heic".to_string()),
+        data: None,
+    });
+    let accepted = message(
+        2,
+        "+15551234567",
+        "+15551234567",
+        false,
+        "continues immediately",
+    );
+    run_messages(&mut gateway, vec![rejected, accepted]).await;
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 2);
+
+    let mut pending = message(3, "+15551234567", "+15551234567", false, "photo");
+    pending.images.push(InboundImage {
+        locator: String::new(),
+        file_size: Some(24),
+        mime_type: Some("image/heic".to_string()),
+        data: None,
+    });
+    let later = message(
+        4,
+        "+15551234567",
+        "+15551234567",
+        false,
+        "runs while photo waits",
+    );
+    let batch = vec![pending, later];
+    for _ in 0..3 {
+        run_messages(&mut gateway, batch.clone()).await;
+    }
+    assert_eq!(calls.lock().unwrap().len(), 2);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 2);
+
+    run_messages(&mut gateway, batch).await;
+    assert_eq!(calls.lock().unwrap().len(), 2);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 4);
+    assert!(gateway
+        .ctx
+        .sent_replies
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .1
+        .contains("JPEG, PNG, or WebP"));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn imessage_completed_row_after_deferred_barrier_is_not_rerun_after_restart() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("imessage-deferred-restart-sessions");
+    let assistant_dir = temp_path("imessage-deferred-restart-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+
+    let mut pending = message(1, "+15551234567", "+15551234567", false, "photo");
+    pending.images.push(InboundImage {
+        locator: String::new(),
+        file_size: Some(24),
+        mime_type: Some("image/heic".to_string()),
+        data: None,
+    });
+    let later = message(2, "+15551234567", "+15551234567", false, "later");
+    let batch = vec![pending, later];
+
+    let mut first = Gateway::new(cfg.clone()).unwrap();
+    first.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    run_complete_snapshot(&mut first, batch.clone()).await;
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(first.store.lock().unwrap().cursor("imessage").unwrap(), 0);
+    assert_eq!(
+        first
+            .store
+            .lock()
+            .unwrap()
+            .completed_rows_after("imessage", 0)
+            .unwrap(),
+        vec![2]
+    );
+    drop(first);
+
+    let mut restarted = Gateway::new(cfg.clone()).unwrap();
+    restarted.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    run_complete_snapshot(&mut restarted, batch.clone()).await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(
+        restarted.store.lock().unwrap().cursor("imessage").unwrap(),
+        0
+    );
+    assert!(restarted.ack.lock().unwrap().deferred.contains(&1));
+    assert!(restarted.ack.lock().unwrap().completed.contains(&2));
+    drop(restarted);
+
+    let mut restarted_again = Gateway::new(cfg.clone()).unwrap();
+    restarted_again.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    run_complete_snapshot(&mut restarted_again, batch.clone()).await;
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(
+        restarted_again
+            .store
+            .lock()
+            .unwrap()
+            .cursor("imessage")
+            .unwrap(),
+        0
+    );
+    drop(restarted_again);
+
+    let mut final_restart = Gateway::new(cfg).unwrap();
+    final_restart.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    run_complete_snapshot(&mut final_restart, batch).await;
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(
+        final_restart
+            .store
+            .lock()
+            .unwrap()
+            .cursor("imessage")
+            .unwrap(),
+        2
+    );
+    assert!(final_restart
+        .ctx
+        .sent_replies
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .1
+        .contains("JPEG, PNG, or WebP"));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn imessage_deferred_barrier_survives_preworker_failure() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("imessage-deferred-failure-sessions");
+    let assistant_dir = temp_path("imessage-deferred-failure-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+
+    let mut pending = message(1, "+15551234567", "+15551234567", false, "photo");
+    pending.images.push(InboundImage {
+        locator: String::new(),
+        file_size: Some(24),
+        mime_type: Some("image/heic".to_string()),
+        data: None,
+    });
+    let later = message(2, "+15551234567", "+15551234567", false, "later");
+    let batch = vec![pending, later];
+    for _ in 0..3 {
+        run_messages(&mut gateway, batch.clone()).await;
+    }
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 0);
+
+    gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .execute_batch_for_test("DROP TABLE messages");
+    run_messages(&mut gateway, batch).await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 0);
+    assert!(gateway.ack.lock().unwrap().deferred.contains(&1));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn imessage_complete_poll_reconciles_a_deleted_deferred_row() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("imessage-deferred-deleted-sessions");
+    let assistant_dir = temp_path("imessage-deferred-deleted-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+
+    let mut pending = message(1, "+15551234567", "+15551234567", false, "photo");
+    pending.images.push(InboundImage {
+        locator: String::new(),
+        file_size: Some(24),
+        mime_type: Some("image/heic".to_string()),
+        data: None,
+    });
+    let later = message(2, "+15551234567", "+15551234567", false, "later");
+    run_complete_snapshot(&mut gateway, vec![pending, later.clone()]).await;
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 0);
+
+    run_complete_snapshot(&mut gateway, vec![later]).await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 2);
+    assert!(gateway.ack.lock().unwrap().deferred.is_empty());
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn slack_download_failure_replies_without_running_an_agent() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = [0_u8; 2048];
+        let read = stream.read(&mut request).await.unwrap();
+        let request = String::from_utf8_lossy(&request[..read]);
+        assert!(request.starts_with("POST /files.info HTTP/1.1"));
+        assert!(request.contains("authorization: Bearer xoxb-test"));
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 37\r\nconnection: close\r\n\r\n{\"ok\":false,\"error\":\"file_not_found\"}",
+            )
+            .await
+            .unwrap();
+    });
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("slack-download-failure-sessions");
+    let assistant_dir = temp_path("slack-download-failure-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "slack".to_string();
+    cfg.slack_app_token = Some("xapp-test".to_string());
+    cfg.slack_bot_token = Some("xoxb-test".to_string());
+    cfg.slack_allow_user_ids = vec!["U1".to_string()];
+    let inbox_path = cfg.paths.inbox.clone();
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let channel = Channel::Slack(
+        crate::slack::Slack::with_api_base(
+            "xapp-test".to_string(),
+            "xoxb-test".to_string(),
+            vec!["U1".to_string()],
+            &inbox_path,
+            format!("http://{address}"),
+        )
+        .unwrap(),
+    );
+    gateway.channel = channel.clone();
+    gateway.ctx.channel = channel;
+
+    run_messages(
+        &mut gateway,
+        vec![slack_image_message(1, "U1", "inspect", None)],
+    )
+    .await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    assert_eq!(gateway.ctx.sent_replies.lock().unwrap().len(), 1);
+    assert!(gateway.ctx.sent_replies.lock().unwrap()[0]
+        .1
+        .contains("JPEG, PNG, or WebP"));
+    assert_eq!(gateway.store.lock().unwrap().cursor("slack").unwrap(), 1);
+    server.await.unwrap();
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_file(inbox_path);
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_image_only_and_captioned_messages_reach_pi() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("pi-image-sessions");
+    let assistant_dir = temp_path("pi-image-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.agent = "pi".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(HashMap::from([(
+        AgentBackend::Pi,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Pi,
+            session_id: "fake-session".to_string(),
+            calls: calls.clone(),
+            before_return: None,
+            wait_for_release: None,
+            failure: None,
+            resume_missing_once: None,
+        }),
+    )]));
+
+    run_messages(
+        &mut gateway,
+        vec![
+            telegram_image_message(1, 7, 7, ""),
+            telegram_image_message(2, 7, 7, "inspect this"),
+        ],
+    )
+    .await;
+
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(
+        crate::prompt::current_message(&calls[0].prompt).as_deref(),
+        Some("[Image attachment]")
+    );
+    assert_eq!(
+        crate::prompt::current_message(&calls[1].prompt).as_deref(),
+        Some("inspect this")
+    );
+    assert!(calls.iter().all(|call| call.images.len() == 1));
+    assert!(calls.iter().all(|call| !call.images[0].exists()));
+    drop(calls);
+    assert_eq!(gateway.store.lock().unwrap().cursor("telegram").unwrap(), 2);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_image_is_removed_before_reply_delivery_finishes() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("image-delivery-sessions");
+    let assistant_dir = temp_path("image-delivery-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::<FakeRunCall>::new()));
+    let captured_path = Arc::new(Mutex::new(None));
+    let hook_calls = calls.clone();
+    let hook_path = captured_path.clone();
+    let hook = Arc::new(move || {
+        *hook_path.lock().unwrap() = Some(hook_calls.lock().unwrap()[0].images[0].clone());
+    });
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners_with_hook(calls, Some(hook)));
+    *gateway.ctx.send_failures_remaining.lock().unwrap() = usize::MAX;
+
+    let task = tokio::spawn(async move {
+        run_messages(
+            &mut gateway,
+            vec![telegram_image_message(1, 7, 7, "inspect")],
+        )
+        .await;
+    });
+    let removed_path = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if let Some(path) = captured_path.lock().unwrap().clone() {
+                if !path.exists() {
+                    break path;
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("image should be removed while delivery keeps retrying");
+
+    assert!(!removed_path.exists());
+    assert!(!task.is_finished());
+    task.abort();
+    let _ = task.await;
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn invalid_and_oversized_telegram_images_fall_back_without_running_the_agent() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("invalid-image-sessions");
+    let assistant_dir = temp_path("invalid-image-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let mut invalid = telegram_image_message(1, 7, 7, "inspect");
+    invalid.images[0].data = Some(b"not an image".to_vec());
+    let mut oversized = telegram_image_message(2, 7, 7, "inspect");
+    oversized.images[0].file_size = Some(crate::image::MAX_IMAGE_BYTES + 1);
+
+    run_messages(&mut gateway, vec![invalid, oversized]).await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    let replies = gateway.ctx.sent_replies.lock().unwrap();
+    assert_eq!(replies.len(), 2);
+    assert!(replies
+        .iter()
+        .all(|(_, reply)| reply.contains("JPEG, PNG, or WebP")));
+    assert_eq!(gateway.store.lock().unwrap().cursor("telegram").unwrap(), 2);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_image_reaches_claude_and_is_removed_after_the_turn() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("claude-image-sessions");
+    let assistant_dir = temp_path("claude-image-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.agent = "claude".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(HashMap::from([(
+        AgentBackend::Claude,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Claude,
+            session_id: "fake-session".to_string(),
+            calls: calls.clone(),
+            before_return: None,
+            wait_for_release: None,
+            failure: None,
+            resume_missing_once: None,
+        }),
+    )]));
+    run_messages(
+        &mut gateway,
+        vec![telegram_image_message(1, 7, 7, "inspect")],
+    )
+    .await;
+
+    let calls = calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        crate::prompt::current_message(&calls[0].prompt).as_deref(),
+        Some("inspect")
+    );
+    assert_eq!(calls[0].images.len(), 1);
+    assert!(!calls[0].images[0].exists());
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn telegram_voice_without_openai_key_falls_back_without_running_agent() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("voice-missing-key-sessions");
+    let assistant_dir = temp_path("voice-missing-key-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    gateway.ctx.voice = None;
+
+    run_messages(&mut gateway, vec![telegram_voice_message(1, 7, 7)]).await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    let replies = gateway.ctx.sent_replies.lock().unwrap();
+    let reply = &replies[0].1;
+    assert!(reply.contains("voice.openai_api_key"));
+    assert!(reply.contains("OPENAI_API_KEY"));
+    assert_eq!(gateway.store.lock().unwrap().cursor("telegram").unwrap(), 1);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn slow_voice_transcription_does_not_block_another_telegram_thread() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("voice-concurrency-sessions");
+    let assistant_dir = temp_path("voice-concurrency-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7, 8];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let (release, blocked) = tokio::sync::oneshot::channel();
+    gateway.ctx.voice = Some(Voice::with_provider(Arc::new(BlockingVoice {
+        release: tokio::sync::Mutex::new(Some(blocked)),
+    })));
+
+    gateway
+        .tick_fake(vec![
+            telegram_voice_message(1, 7, 7),
+            telegram_message(2, 8, 8, false, "fast text request"),
+        ])
+        .await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if calls.lock().unwrap().iter().any(|call| {
+                crate::prompt::current_message(&call.prompt).as_deref() == Some("fast text request")
+            }) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("text thread should run while voice transcription is blocked");
+    assert!(!calls
+        .lock()
+        .unwrap()
+        .iter()
+        .any(
+            |call| crate::prompt::current_message(&call.prompt).as_deref()
+                == Some("slow voice request")
+        ));
+
+    release.send(()).unwrap();
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+    assert!(calls
+        .lock()
+        .unwrap()
+        .iter()
+        .any(
+            |call| crate::prompt::current_message(&call.prompt).as_deref()
+                == Some("slow voice request")
+        ));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn closed_worker_queue_is_recovered_without_another_message() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("closed-worker-sessions");
+    let assistant_dir = temp_path("closed-worker-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+
+    let thread = "imessage:self:me@icloud.com";
+    let lost_inbound_id = gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .record_inbound("imessage", thread, "imessage:1", "recover older")
+        .unwrap();
+    gateway.ack.lock().unwrap().in_flight.insert(1);
+    let lost_job = Job {
+        row_id: 1,
+        inbound_id: lost_inbound_id,
+        thread: thread.to_string(),
+        target: "me@icloud.com".to_string(),
+        backend: AgentBackend::Codex,
+        text: "recover older".to_string(),
+        reply_with_voice: false,
+        voice_attachment: None,
+        image_attachments: Vec::new(),
+        approval_origin: AnswerOrigin {
+            channel: "imessage".to_string(),
+            thread_key: thread.to_string(),
+            sender_key: "me@icloud.com".to_string(),
+            chat_key: "me@icloud.com".to_string(),
+        },
+    };
+
+    let (jobs, rx) = mpsc::channel(QUEUE_DEPTH);
+    drop(rx);
+    let (cancel, _) = watch::channel(0);
+    gateway.queues.insert(
+        thread.to_string(),
+        WorkerQueue {
+            jobs,
+            state: Arc::new(Mutex::new(WorkerState {
+                pending: VecDeque::from([lost_job]),
+                current_row: None,
+                retained_rows: BTreeSet::new(),
+            })),
+            cancel,
+        },
+    );
+
+    gateway.process_messages(Vec::new(), false).await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    let prompts = calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|call| call.prompt.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(
+        crate::prompt::current_message(&prompts[0]).as_deref(),
+        Some("recover older")
+    );
+    assert_eq!(gateway.store.lock().unwrap().last_row(), 1);
+    let events = audit_events(&format!("{state_path}.audit.jsonl"));
+    assert!(events
+        .iter()
+        .any(|event| event.event == "message_queue_recovered"));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn stop_interrupts_active_run_and_preserves_queued_messages() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("interrupt-sessions");
+    let assistant_dir = temp_path("interrupt-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let release = Arc::new(tokio::sync::Notify::new());
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    let mut runners = HashMap::new();
+    runners.insert(
+        AgentBackend::Codex,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Codex,
+            session_id: "fake-session".to_string(),
+            calls: calls.clone(),
+            before_return: None,
+            wait_for_release: Some(release.clone()),
+            failure: None,
+            resume_missing_once: None,
+        }),
+    );
+    gateway.ctx.runners = Arc::new(runners);
+
+    let mut slow = message(1, "me@icloud.com", "", true, "slow");
+    slow.images.push(InboundImage {
+        locator: "image-file".to_string(),
+        file_size: Some(12),
+        mime_type: Some("image/png".to_string()),
+        data: Some(b"\x89PNG\r\n\x1a\nbody".to_vec()),
+    });
+    gateway.tick_fake(vec![slow]).await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if !calls.lock().unwrap().is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("first run should become active");
+    let image_path = calls.lock().unwrap()[0].images[0].clone();
+    assert!(image_path.exists());
+
+    gateway
+        .tick_fake(vec![
+            message(2, "me@icloud.com", "", true, "queued"),
+            message(3, "me@icloud.com", "", true, "/stop"),
+        ])
+        .await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            let interrupted = gateway
+                .ctx
+                .sent_replies
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(_, reply)| reply.contains("Stopped the current request"));
+            if interrupted && calls.lock().unwrap().len() == 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("active run should stop before the queued run starts");
+    assert!(!image_path.exists());
+    release.notify_one();
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    let prompts = calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|call| call.prompt.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        crate::prompt::current_message(&prompts[0]).as_deref(),
+        Some("slow")
+    );
+    assert!(prompts[1].contains(r#"{"role":"user","content":"queued"}"#));
+    let replies = gateway.ctx.sent_replies.lock().unwrap();
+    assert!(replies
+        .iter()
+        .any(|(_, reply)| reply.contains("Stop requested")));
+    assert!(replies
+        .iter()
+        .any(|(_, reply)| reply.contains("Stopped the current request")));
+    assert!(replies
+        .iter()
+        .any(|(_, reply)| reply.contains("fake reply: queued")));
+    assert_eq!(gateway.store.lock().unwrap().last_row(), 3);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(format!("{state_path}.cache"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn stop_interrupts_a_worker_queued_in_the_same_poll_batch() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("same-batch-stop-sessions");
+    let assistant_dir = temp_path("same-batch-stop-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let release = Arc::new(tokio::sync::Notify::new());
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    let mut runners = HashMap::new();
+    runners.insert(
+        AgentBackend::Codex,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Codex,
+            session_id: "fake-session".to_string(),
+            calls: calls.clone(),
+            before_return: None,
+            wait_for_release: Some(release.clone()),
+            failure: None,
+            resume_missing_once: None,
+        }),
+    );
+    gateway.ctx.runners = Arc::new(runners);
+
+    gateway
+        .tick_fake(vec![
+            message(1, "me@icloud.com", "", true, "slow"),
+            message(2, "me@icloud.com", "", true, "/stop"),
+        ])
+        .await;
+    let interrupted = tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if gateway
+                .ctx
+                .sent_replies
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(_, reply)| reply.contains("Stopped the current request"))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    release.notify_one();
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+    interrupted.expect("a request queued before /stop in the same batch should be interrupted");
+
+    let replies = gateway.ctx.sent_replies.lock().unwrap();
+    assert!(replies
+        .iter()
+        .any(|(_, reply)| reply.contains("Stop requested")));
+    assert!(!replies
+        .iter()
+        .any(|(_, reply)| reply.contains("Nothing is currently running")));
+    assert_eq!(gateway.store.lock().unwrap().last_row(), 2);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn stale_stop_signal_does_not_interrupt_a_later_row() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("stale-stop-sessions");
+    let assistant_dir = temp_path("stale-stop-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let thread = "imessage:self:me@icloud.com";
+
+    gateway
+        .tick_fake(vec![message(1, "me@icloud.com", "", true, "first")])
+        .await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if gateway.store.lock().unwrap().last_row() == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("first row should complete");
+    gateway.queues.get(thread).unwrap().cancel.send(1).unwrap();
+
+    run_messages(
+        &mut gateway,
+        vec![message(2, "me@icloud.com", "", true, "second")],
+    )
+    .await;
+
+    let prompts = calls
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|call| call.prompt.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(prompts.len(), 2);
+    assert!(prompts[1].contains("second"));
+    assert_eq!(gateway.store.lock().unwrap().last_row(), 2);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn stop_targets_the_current_row_ahead_of_retained_failures() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("current-row-stop-sessions");
+    let assistant_dir = temp_path("current-row-stop-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    let thread = "imessage:self:me@icloud.com";
+    let make_job = |row_id, inbound_id, text: &str| Job {
+        row_id,
+        inbound_id,
+        thread: thread.to_string(),
+        target: "me@icloud.com".to_string(),
+        backend: AgentBackend::Codex,
+        text: text.to_string(),
+        reply_with_voice: false,
+        voice_attachment: None,
+        image_attachments: Vec::new(),
+        approval_origin: AnswerOrigin {
+            channel: "imessage".to_string(),
+            thread_key: thread.to_string(),
+            sender_key: "me@icloud.com".to_string(),
+            chat_key: "me@icloud.com".to_string(),
+        },
+    };
+    let inbound_ids = ["failed", "active", "/stop"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, text)| {
+            gateway
+                .ctx
+                .history
+                .lock()
+                .unwrap()
+                .record_inbound("imessage", thread, &format!("imessage:{}", index + 1), text)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let retained = make_job(1, inbound_ids[0], "failed");
+    let active = make_job(2, inbound_ids[1], "active");
+    let stop = make_job(3, inbound_ids[2], "/stop");
+    let (jobs, _jobs_rx) = mpsc::channel(QUEUE_DEPTH);
+    let (cancel, cancel_rx) = watch::channel(0);
+    gateway.queues.insert(
+        thread.to_string(),
+        WorkerQueue {
+            jobs,
+            state: Arc::new(Mutex::new(WorkerState {
+                pending: VecDeque::from([retained, active]),
+                current_row: Some(2),
+                retained_rows: BTreeSet::from([1]),
+            })),
+            cancel,
+        },
+    );
+
+    assert!(gateway.stop(stop).await);
+
+    assert_eq!(*cancel_rx.borrow(), 2);
+    assert!(gateway
+        .ctx
+        .sent_replies
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, reply)| reply.contains("Stop requested")));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn failed_stop_history_write_retries_before_later_rows() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("stop-history-failure-sessions");
+    let assistant_dir = temp_path("stop-history-failure-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    gateway.ctx.history.lock().unwrap().execute_batch_for_test(
+        "CREATE TRIGGER fail_stop_outbound
+         BEFORE INSERT ON messages
+         WHEN NEW.direction = 'outbound'
+          AND NEW.content = 'Nothing is currently running in this conversation.'
+         BEGIN
+           SELECT RAISE(FAIL, 'forced stop acknowledgement failure');
+         END;",
+    );
+    let batch = vec![
+        message(1, "me@icloud.com", "", true, "/stop"),
+        message(2, "me@icloud.com", "", true, "later"),
+    ];
+
+    gateway.tick_fake(batch.clone()).await;
+
+    assert!(calls.lock().unwrap().is_empty());
+    assert!(gateway.queues.is_empty());
+    assert_eq!(gateway.store.lock().unwrap().cursor("imessage").unwrap(), 0);
+
+    gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .execute_batch_for_test("DROP TRIGGER fail_stop_outbound;");
+    run_messages(&mut gateway, batch).await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().last_row(), 2);
+    let replies = gateway.ctx.sent_replies.lock().unwrap();
+    let stop_reply = replies
+        .iter()
+        .position(|(_, reply)| reply.contains("Nothing is currently running in this conversation."))
+        .expect("failed stop acknowledgement should be delivered on retry");
+    let later_reply = replies
+        .iter()
+        .position(|(_, reply)| reply.contains("later"))
+        .expect("later backend reply should be delivered");
+    assert!(stop_reply < later_reply);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn retried_stop_acknowledgement_does_not_cancel_the_next_request() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("stop-idempotency-sessions");
+    let assistant_dir = temp_path("stop-idempotency-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let release = Arc::new(tokio::sync::Notify::new());
+    let config = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    let mut gateway = Gateway::new(config.clone()).unwrap();
+    let mut runners = HashMap::new();
+    runners.insert(
+        AgentBackend::Codex,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Codex,
+            session_id: "fake-session".to_string(),
+            calls: calls.clone(),
+            before_return: None,
+            wait_for_release: Some(release.clone()),
+            failure: None,
+            resume_missing_once: None,
+        }),
+    );
+    gateway.ctx.runners = Arc::new(runners);
+
+    gateway
+        .tick_fake(vec![message(1, "me@icloud.com", "", true, "slow")])
+        .await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while calls.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("first request should start");
+    gateway.ctx.history.lock().unwrap().execute_batch_for_test(
+        "CREATE TRIGGER fail_stop_request_outbound
+         BEFORE INSERT ON messages
+         WHEN NEW.direction = 'outbound'
+          AND NEW.content = 'Stop requested. Queued messages will continue.'
+         BEGIN
+           SELECT RAISE(FAIL, 'forced stop acknowledgement failure');
+         END;",
+    );
+
+    gateway
+        .tick_fake(vec![
+            message(2, "me@icloud.com", "", true, "queued"),
+            message(3, "me@icloud.com", "", true, "/stop"),
+        ])
+        .await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while calls.lock().unwrap().len() < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("queued request should start after the first request is interrupted");
+    gateway
+        .ctx
+        .history
+        .lock()
+        .unwrap()
+        .execute_batch_for_test("DROP TRIGGER fail_stop_request_outbound;");
+
+    gateway.queues.clear();
+    for worker in gateway.handles.drain(..) {
+        worker.abort();
+        let _ = worker.await;
+    }
+    drop(gateway);
+
+    let restart_calls = Arc::new(Mutex::new(Vec::new()));
+    let restart_release = Arc::new(tokio::sync::Notify::new());
+    let mut restarted = Gateway::new(config).unwrap();
+    let mut restart_runners = HashMap::new();
+    restart_runners.insert(
+        AgentBackend::Codex,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Codex,
+            session_id: "fake-session".to_string(),
+            calls: restart_calls.clone(),
+            before_return: None,
+            wait_for_release: Some(restart_release.clone()),
+            failure: None,
+            resume_missing_once: None,
+        }),
+    );
+    restarted.ctx.runners = Arc::new(restart_runners);
+    restarted
+        .tick_fake(vec![
+            message(2, "me@icloud.com", "", true, "queued"),
+            message(3, "me@icloud.com", "", true, "/stop"),
+        ])
+        .await;
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while restart_calls.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("queued request should restart before the stop acknowledgement is retried");
+    restart_release.notify_one();
+    restarted.queues.clear();
+    restarted.drain_workers().await;
+
+    let replies = restarted.ctx.sent_replies.lock().unwrap();
+    assert_eq!(
+        replies
+            .iter()
+            .filter(|(_, reply)| reply.starts_with("Stopped the current request"))
+            .count(),
+        0
+    );
+    assert!(replies
+        .iter()
+        .any(|(_, reply)| reply.contains("Stop requested")));
+    assert!(replies.iter().any(|(_, reply)| reply.contains("queued")));
+    assert_eq!(restart_calls.lock().unwrap().len(), 1);
+    assert_eq!(restarted.store.lock().unwrap().last_row(), 3);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn failed_stop_acknowledgement_does_not_block_later_messages() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("stop-delivery-failure-sessions");
+    let assistant_dir = temp_path("stop-delivery-failure-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    *gateway.ctx.send_failures_remaining.lock().unwrap() = 1;
+
+    gateway
+        .tick_fake(vec![message(1, "me@icloud.com", "", true, "/stop")])
+        .await;
+    run_messages(
+        &mut gateway,
+        vec![message(2, "me@icloud.com", "", true, "still works")],
+    )
+    .await;
+
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    assert_eq!(gateway.store.lock().unwrap().last_row(), 2);
+    let events = audit_events(&format!("{state_path}.audit.jsonl"));
+    assert!(events.iter().any(|event| {
+        event.event == "reply_failed"
+            && event.error.as_deref() == Some("stop acknowledgement delivery failed")
+    }));
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn primary_delivery_is_scoped_validated_and_non_fatal_when_missing_or_invalid() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("primary-sessions");
+    let assistant_dir = temp_path("primary-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channels = vec!["imessage".to_string(), "telegram".to_string()];
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+
+    let missing = GatewayGroup::new(cfg.clone()).unwrap();
+    assert!(missing
+        .primary_destination()
+        .unwrap_err()
+        .to_string()
+        .contains("not configured"));
+
+    cfg.primary_delivery = Some(PrimaryDeliveryConfig {
+        channel: "telegram".to_string(),
+        target: "99".to_string(),
+    });
+    let invalid = GatewayGroup::new(cfg.clone()).unwrap();
+    assert!(invalid
+        .primary_destination()
+        .unwrap_err()
+        .to_string()
+        .contains("invalid primary delivery target"));
+
+    cfg.primary_delivery = Some(PrimaryDeliveryConfig {
+        channel: "telegram".to_string(),
+        target: "7:42".to_string(),
+    });
+    let valid = GatewayGroup::new(cfg).unwrap();
+    let destination = valid.deliver_primary("scheduled result").await.unwrap();
+    assert_eq!(
+        destination,
+        PrimaryDestination {
+            channel: "telegram".to_string(),
+            target: "7:42".to_string(),
+        }
+    );
+    let telegram = valid
+        .gateways
+        .iter()
+        .find(|gateway| gateway.channel.id() == "telegram")
+        .unwrap();
+    assert_eq!(
+        telegram.ctx.sent_replies.lock().unwrap().as_slice(),
+        [("7:42".to_string(), "scheduled result".to_string())]
+    );
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test]
+async fn scheduled_telegram_retry_resumes_at_the_first_unsent_rich_chunk() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("scheduled-rich-retry-sessions");
+    let assistant_dir = temp_path("scheduled-rich-retry-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let gateway = Gateway::new(cfg).unwrap();
+    *gateway.ctx.send_failure_after.lock().unwrap() = Some(1);
+    let checkpoints = Arc::new(Mutex::new(Vec::new()));
+    let text = "x".repeat(crate::telegram::TEXT_LIMIT + 1);
+
+    let first = scheduled_reply_to(
+        &gateway.ctx,
+        "7",
+        &text,
+        0,
+        jobs::DeliveryProgress::accepting_for_test(checkpoints.clone()),
+    )
+    .await;
+
+    assert!(!first.delivered);
+    assert_eq!(first.next_chunk, 1);
+    assert_eq!(gateway.ctx.sent_replies.lock().unwrap().len(), 1);
+    assert_eq!(checkpoints.lock().unwrap().as_slice(), [1]);
+
+    let second = scheduled_reply_to(
+        &gateway.ctx,
+        "7",
+        &text,
+        first.next_chunk,
+        jobs::DeliveryProgress::accepting_for_test(checkpoints.clone()),
+    )
+    .await;
+
+    assert!(second.delivered);
+    assert_eq!(second.next_chunk, 2);
+    let replies = gateway.ctx.sent_replies.lock().unwrap();
+    assert_eq!(replies.len(), 2);
+    assert_eq!(
+        replies
+            .iter()
+            .map(|(_, chunk)| chunk.as_str())
+            .collect::<String>(),
+        text
+    );
+    assert_eq!(checkpoints.lock().unwrap().as_slice(), [1, 2]);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn ordinary_telegram_retry_resumes_at_the_first_unsent_chunk() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("ordinary-rich-retry-sessions");
+    let assistant_dir = temp_path("ordinary-rich-retry-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.channel = "telegram".to_string();
+    cfg.self_handles.clear();
+    cfg.allow_from.clear();
+    cfg.telegram_bot_token = Some("secret".to_string());
+    cfg.telegram_allow_user_ids = vec![7];
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(Arc::new(Mutex::new(Vec::new()))));
+    *gateway.ctx.send_failure_after.lock().unwrap() = Some(1);
+    let prompt = "x".repeat(crate::telegram::TEXT_LIMIT + 1);
+    let expected = crate::telegram::split_text(&format!("fake reply: {prompt}"));
+
+    gateway
+        .tick_fake(vec![telegram_message(1, 7, 7, false, &prompt)])
+        .await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+
+    let delivered = gateway
+        .ctx
+        .sent_replies
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, text)| text.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(delivered, expected);
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test]
+async fn missing_primary_disables_new_schedules_without_stopping_gateway() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("missing-primary-sessions");
+    let assistant_dir = temp_path("missing-primary-assistant");
+    let jobs_dir = temp_path("missing-primary-jobs");
+    let workdir = temp_path("missing-primary-work");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    std::fs::create_dir_all(&jobs_dir).unwrap();
+    std::fs::create_dir_all(&workdir).unwrap();
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.jobs_dir = jobs_dir.to_string_lossy().to_string();
+    std::fs::write(
+        jobs_dir.join("disabled.md"),
+        format!(
+            "+++\nversion = 1\ntimeout = \"5s\"\nworkdir = {:?}\nbackend = \"codex\"\n\n[[triggers]]\nid = \"minute\"\nkind = \"cron\"\nschedule = \"* * * * *\"\ntimezone = \"UTC\"\nenabled = true\n+++\n\nRun.\n",
+            workdir.to_string_lossy()
+        ),
+    )
+    .unwrap();
+    let group = GatewayGroup::new(cfg.clone()).unwrap();
+    group.gateways[0]
+        .store
+        .lock()
+        .unwrap()
+        .set_cursor("imessage", 1)
+        .unwrap();
+
+    group
+        .run_until(tokio::time::sleep(Duration::from_millis(50)))
+        .await
+        .unwrap();
+
+    let rows = crate::jobs::Ledger::open(&cfg.paths.database)
+        .unwrap()
+        .runs(Some("disabled"))
+        .unwrap();
+    assert!(rows.is_empty());
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+    let _ = std::fs::remove_dir_all(jobs_dir);
+    let _ = std::fs::remove_dir_all(workdir);
+}
+
+#[test]
+fn missing_primary_closes_upgrade_migration_before_later_schedule_creation() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("missing-primary-migration-sessions");
+    let assistant_dir = temp_path("missing-primary-migration-assistant");
+    let jobs_dir = temp_path("missing-primary-migration-jobs");
+    let workdir = temp_path("missing-primary-migration-work");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    std::fs::create_dir_all(&jobs_dir).unwrap();
+    std::fs::create_dir_all(&workdir).unwrap();
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.jobs_dir = jobs_dir.to_string_lossy().to_string();
+    let history = crate::history::History::open(&cfg.paths.database).unwrap();
+    history.execute_batch_for_test(
+        "DROP TABLE job_schedule_review_questions;
+         DROP TABLE job_schedule_events;
+         DROP TABLE job_schedule_reviews;
+         DROP TABLE job_schedule_legacy_baseline;
+         DROP TABLE job_schedule_meta;
+         PRAGMA user_version = 11;",
+    );
+    drop(history);
+
+    let missing = GatewayGroup::new(cfg.clone()).unwrap();
+    drop(missing);
+    std::fs::write(
+        jobs_dir.join("later.md"),
+        format!(
+            "+++\nversion = 1\ntimeout = \"5s\"\nworkdir = {:?}\nbackend = \"codex\"\n\n[[triggers]]\nid = \"minute\"\nkind = \"cron\"\nschedule = \"* * * * *\"\ntimezone = \"UTC\"\nenabled = true\n+++\n\nRun.\n",
+            workdir.to_string_lossy()
+        ),
+    )
+    .unwrap();
+    cfg.primary_delivery = Some(PrimaryDeliveryConfig {
+        channel: "imessage".to_string(),
+        target: "+15551234567".to_string(),
+    });
+
+    let valid = GatewayGroup::new(cfg.clone()).unwrap();
+    drop(valid);
+    let reviews = crate::jobs::Ledger::open(&cfg.paths.database)
+        .unwrap()
+        .schedule_reviews(Some("later"))
+        .unwrap();
+    assert_eq!(reviews.len(), 1);
+    assert_eq!(reviews[0].status, "proposed");
+
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.db"));
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+    let _ = std::fs::remove_dir_all(jobs_dir);
+    let _ = std::fs::remove_dir_all(workdir);
+}
+
+#[tokio::test]
+async fn one_channel_failure_does_not_stop_another_and_shutdown_reaches_survivor() {
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let healthy_started = Arc::new(AtomicBool::new(false));
+    let healthy_stopped = Arc::new(AtomicBool::new(false));
+    let mut tasks = JoinSet::new();
+    tasks.spawn(async { anyhow::bail!("imessage rate limited") });
+    let started = healthy_started.clone();
+    let stopped = healthy_stopped.clone();
+    tasks.spawn(async move {
+        let mut shutdown = shutdown_rx;
+        started.store(true, Ordering::SeqCst);
+        shutdown.changed().await.unwrap();
+        stopped.store(true, Ordering::SeqCst);
+        Ok("telegram")
+    });
+    let shutdown = async {
+        while !healthy_started.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+        tokio::task::yield_now().await;
+    };
+
+    coordinate_channel_tasks(tasks, shutdown_tx, shutdown)
+        .await
+        .unwrap();
+
+    assert!(healthy_stopped.load(Ordering::SeqCst));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn group_shutdown_waits_for_an_in_flight_channel_worker() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("group-drain-sessions");
+    let assistant_dir = temp_path("group-drain-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let started = Arc::new(AtomicBool::new(false));
+    let finished = Arc::new(AtomicBool::new(false));
+    let started_hook = started.clone();
+    let finished_hook = finished.clone();
+    let hook = Arc::new(move || {
+        started_hook.store(true, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(50));
+        finished_hook.store(true, Ordering::SeqCst);
+    });
+    let mut group = GatewayGroup::new(test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    ))
+    .unwrap();
+    group.gateways[0].ctx.runners = Arc::new(fake_runners_with_hook(
+        Arc::new(Mutex::new(Vec::new())),
+        Some(hook),
+    ));
+    group.gateways[0]
+        .tick_fake(vec![message(
+            1,
+            "+15551234567",
+            "+15551234567",
+            false,
+            "finish during shutdown",
+        )])
+        .await;
+    while !started.load(Ordering::SeqCst) {
+        tokio::task::yield_now().await;
+    }
+    group.gateways[0]
+        .store
+        .lock()
+        .unwrap()
+        .set_cursor("imessage", 1)
+        .unwrap();
+
+    tokio::time::timeout(Duration::from_secs(1), group.run_until(async {}))
+        .await
+        .expect("group shutdown should remain bounded")
+        .unwrap();
+
+    assert!(finished.load(Ordering::SeqCst));
+    let _ = std::fs::remove_file(&state_path);
+    let _ = std::fs::remove_file(format!("{state_path}.audit.jsonl"));
+    let _ = std::fs::remove_dir_all(sessions_dir);
+    let _ = std::fs::remove_dir_all(assistant_dir);
+}
+
+#[tokio::test]
+async fn route_agent_writes_job_directly_without_approval() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("direct-job-sessions");
+    let assistant_dir = temp_path("direct-job-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.jobs_dir = assistant_dir.join("jobs").to_string_lossy().to_string();
+    std::fs::create_dir_all(&cfg.jobs_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(cfg.clone()).unwrap();
+    let job_path = Path::new(&cfg.jobs_dir).join("agent-note.md");
+    let hook = Arc::new(move || {
+        std::fs::write(
+            &job_path,
+            "+++\nversion = 1\ntimeout = \"5s\"\nbackend = \"codex\"\n+++\n\nPrepare a note.\n",
+        )
+        .unwrap();
+    });
+    gateway.ctx.runners = Arc::new(fake_runners_with_hook(calls.clone(), Some(hook)));
+
+    run_messages(
+        &mut gateway,
+        vec![message(
+            1,
+            "+15551234567",
+            "+15551234567",
+            false,
+            "Create a morning job",
+        )],
+    )
+    .await;
+
+    let job = crate::jobs::Catalog::load_named(&cfg, "agent-note").unwrap();
+    assert_eq!(job.workdir, std::fs::canonicalize(&assistant_dir).unwrap());
+    assert_eq!(calls.lock().unwrap().len(), 1);
+    let replies = gateway.ctx.sent_replies.lock().unwrap().clone();
+    assert!(!replies.iter().any(|(_, text)| text.contains("Approve")));
+}
+
+#[tokio::test]
+async fn direct_authored_schedule_is_saved_then_reviewed_in_its_owner_channel() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("direct-schedule-sessions");
+    let assistant_dir = temp_path("direct-schedule-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let mut cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    cfg.jobs_dir = assistant_dir.join("jobs").to_string_lossy().to_string();
+    std::fs::create_dir_all(&cfg.jobs_dir).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(cfg.clone()).unwrap();
+    gateway.ctx.schedule_destination = Some(PrimaryDestination {
+        channel: "imessage".to_string(),
+        target: "+15551234567".to_string(),
+    });
+    let job_path = Path::new(&cfg.jobs_dir).join("agent-schedule.md");
+    let hook = Arc::new(move || {
+        std::fs::write(
+            &job_path,
+            "+++\nversion = 1\ntimeout = \"5s\"\nbackend = \"codex\"\n\n[[triggers]]\nid = \"morning\"\nkind = \"cron\"\nschedule = \"0 8 * * *\"\ntimezone = \"Europe/London\"\nenabled = true\n+++\n\nPrepare a note.\n",
+        )
+        .unwrap();
+    });
+    gateway.ctx.runners = Arc::new(fake_runners_with_hook(calls, Some(hook)));
+
+    run_messages(
+        &mut gateway,
+        vec![message(
+            1,
+            "+15551234567",
+            "+15551234567",
+            false,
+            "Create a morning schedule",
+        )],
+    )
+    .await;
+
+    let replies = gateway.ctx.sent_replies.lock().unwrap().clone();
+    let review = replies
+        .iter()
+        .map(|(_, text)| text)
+        .find(|text| text.contains("Review schedule activation"))
+        .expect("schedule review should be delivered after direct authoring");
+    assert!(review.contains("Job: agent-schedule"));
+    assert!(review.contains("0 8 * * *"));
+    let question_id = review
+        .split(|character: char| character.is_whitespace() || character == '`')
+        .find(|part| Uuid::parse_str(part).is_ok())
+        .unwrap()
+        .to_string();
+    drop(replies);
+
+    run_messages(
+        &mut gateway,
+        vec![message(
+            2,
+            "+15551234567",
+            "+15551234567",
+            false,
+            &format!("{question_id} 1"),
+        )],
+    )
+    .await;
+
+    assert!(gateway
+        .ctx
+        .sent_replies
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, text)| text.contains("Approved schedule activation")));
+}
+
+#[tokio::test]
+async fn retired_job_approval_reply_explains_direct_creation() {
+    let state_path = temp_state_path();
+    let sessions_dir = temp_path("retired-job-approval-sessions");
+    let assistant_dir = temp_path("retired-job-approval-assistant");
+    std::fs::create_dir_all(&assistant_dir).unwrap();
+    let cfg = test_config(
+        &state_path,
+        sessions_dir.to_str().unwrap(),
+        assistant_dir.to_str().unwrap(),
+    );
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let mut gateway = Gateway::new(cfg).unwrap();
+    gateway.ctx.runners = Arc::new(fake_runners(calls.clone()));
+    let answer = message(1, "+15551234567", "+15551234567", false, "answer");
+    let (thread, target) = gateway.channel.accept(&answer).unwrap();
+    let question = Question::new(
+        gateway.channel.approval_origin(&answer, &thread),
+        target,
+        "Install the old job?",
+        vec![
+            crate::approval::Choice {
+                label: "Approve".to_string(),
+                value: "approve".to_string(),
+            },
+            crate::approval::Choice {
+                label: "Reject".to_string(),
+                value: "reject".to_string(),
+            },
+        ],
+        now_ms() + 60_000,
+    )
+    .unwrap();
+    {
+        let mut history = gateway.ctx.history.lock().unwrap();
+        history.create_question(&question, now_ms()).unwrap();
+        history.execute_batch_for_test(&format!(
+            "INSERT INTO job_draft_proposals (
+                question_id, name, path, snapshot_hash, contents, proposed_by,
+                proposed_channel, proposed_thread, proposed_sender, proposed_chat,
+                status, proposed_at_ms, decision_at_ms, error
+             ) VALUES ('{}', 'morning-job', '/tmp/morning-job.md', 'hash', 'body',
+                       'legacy', 'imessage', 'imessage:dm:15551234567',
+                       '15551234567', '15551234567', 'invalidated', 1000, 1000,
+                       'job approval was removed; request direct job creation');
+             UPDATE approval_questions SET status = 'cancelled' WHERE id = '{}';",
+            question.id, question.id
+        ));
+    }
+
+    run_messages(
+        &mut gateway,
+        vec![message(
+            1,
+            "+15551234567",
+            "+15551234567",
+            false,
+            &format!("{} 1", question.id),
+        )],
+    )
+    .await;
+
+    assert!(gateway
+        .ctx
+        .sent_replies
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|(_, text)| text.contains("approval is no longer used")));
+    assert!(calls.lock().unwrap().is_empty());
+}
+
+fn test_config(state_path: &str, _sessions_dir: &str, assistant_dir: &str) -> Config {
+    Config {
+        channel: "imessage".to_string(),
+        channels: Vec::new(),
+        primary_delivery: None,
+        db_path: "fake-chat.db".to_string(),
+        poll_interval: "1s".to_string(),
+        run_timeout: "1s".to_string(),
+        self_handles: vec!["me@icloud.com".to_string()],
+        allow_from: vec!["+15551234567".to_string()],
+        telegram_bot_token: None,
+        telegram_allow_user_ids: Vec::new(),
+        telegram_allow_chat_ids: Vec::new(),
+        slack_app_token: None,
+        slack_bot_token: None,
+        slack_allow_user_ids: Vec::new(),
+        voice_openai_api_key: None,
+        voice_name: crate::config::DEFAULT_VOICE_NAME.to_string(),
+        agent: "codex".to_string(),
+        routes: Vec::new(),
+        assistant_root: assistant_dir.to_string(),
+        jobs_dir: format!("{state_path}.jobs"),
+        jobs_agent: None,
+        jobs_max_timeout: "30m".to_string(),
+        jobs_run_dir_override: None,
+        jobs_max_workers: 2,
+        state_path_override: None,
+        audit_log_path_override: None,
+        database_path_override: None,
+        audit_log_content: false,
+        config_path: String::new(),
+        paths: crate::paths::FrwrdPaths {
+            root: PathBuf::from(format!("{state_path}.home")),
+            config: PathBuf::from(format!("{state_path}.config.toml")),
+            database: PathBuf::from(format!("{state_path}.db")),
+            state: PathBuf::from(state_path),
+            audit: PathBuf::from(format!("{state_path}.audit.jsonl")),
+            jobs_run: PathBuf::from(format!("{state_path}.run")),
+            inbox: PathBuf::from(format!("{state_path}.slack-inbox.db")),
+            cache: PathBuf::from(format!("{state_path}.cache")),
+        },
+        agent_commands: crate::config::AgentCommands::default(),
+        assistant_dir: assistant_dir.to_string(),
+    }
+}
+
+pub(crate) fn test_config_for_jobs(
+    state_path: &str,
+    sessions_dir: &str,
+    assistant_dir: &str,
+) -> Config {
+    test_config(state_path, sessions_dir, assistant_dir)
+}
+
+fn audit_events(path: &str) -> Vec<crate::audit::AuditEvent> {
+    std::fs::read_to_string(path)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect()
+}
+
+fn fake_runners(calls: Arc<Mutex<Vec<FakeRunCall>>>) -> HashMap<AgentBackend, Runner> {
+    fake_runners_with_hook(calls, None)
+}
+
+fn fake_runners_with_hook(
+    calls: Arc<Mutex<Vec<FakeRunCall>>>,
+    before_return: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> HashMap<AgentBackend, Runner> {
+    let mut runners = HashMap::new();
+    runners.insert(
+        AgentBackend::Codex,
+        Runner::Fake(FakeRunner {
+            backend: AgentBackend::Codex,
+            session_id: "fake-session".to_string(),
+            calls,
+            before_return,
+            wait_for_release: None,
+            failure: None,
+            resume_missing_once: None,
+        }),
+    );
+    runners
+}
+
+async fn run_messages(gateway: &mut Gateway, messages: Vec<RawMessage>) {
+    gateway.tick_fake(messages).await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+}
+
+async fn run_complete_snapshot(gateway: &mut Gateway, messages: Vec<RawMessage>) {
+    gateway.tick_fake_complete(messages).await;
+    gateway.queues.clear();
+    gateway.drain_workers().await;
+}
+
+fn approval_question(
+    channel: &str,
+    thread: &str,
+    sender: &str,
+    chat: &str,
+    target: &str,
+) -> Question {
+    Question::new(
+        AnswerOrigin {
+            channel: channel.to_string(),
+            thread_key: thread.to_string(),
+            sender_key: sender.to_string(),
+            chat_key: chat.to_string(),
+        },
+        target,
+        "Apply the draft?",
+        vec![
+            crate::approval::Choice {
+                label: "Approve".to_string(),
+                value: "approve".to_string(),
+            },
+            crate::approval::Choice {
+                label: "Reject".to_string(),
+                value: "reject".to_string(),
+            },
+        ],
+        now_ms() + 60_000,
+    )
+    .unwrap()
+}
+
+fn message(row_id: i64, chat: &str, handle: &str, is_from_me: bool, text: &str) -> RawMessage {
+    RawMessage {
+        row_id,
+        provider_event_id: None,
+        channel: "imessage",
+        handle: handle.to_string(),
+        chat_identifier: chat.to_string(),
+        text: text.to_string(),
+        voice: None,
+        images: Vec::new(),
+        is_from_me,
+        is_group: false,
+        is_supported: true,
+        thread_id: None,
+    }
+}
+
+fn telegram_message(
+    row_id: i64,
+    user_id: i64,
+    chat_id: i64,
+    is_group: bool,
+    text: &str,
+) -> RawMessage {
+    RawMessage {
+        row_id,
+        provider_event_id: None,
+        channel: "telegram",
+        handle: user_id.to_string(),
+        chat_identifier: chat_id.to_string(),
+        text: text.to_string(),
+        voice: None,
+        images: Vec::new(),
+        is_from_me: false,
+        is_group,
+        is_supported: true,
+        thread_id: None,
+    }
+}
+
+fn telegram_voice_message(row_id: i64, user_id: i64, chat_id: i64) -> RawMessage {
+    let mut message = telegram_message(row_id, user_id, chat_id, false, "");
+    message.voice = Some(InboundVoice {
+        locator: "voice-file".to_string(),
+        file_size: Some(3),
+        mime_type: "audio/ogg".to_string(),
+        filename: "voice.ogg".to_string(),
+        data: Some(vec![1, 2, 3]),
+    });
+    message
+}
+
+fn telegram_image_message(row_id: i64, user_id: i64, chat_id: i64, caption: &str) -> RawMessage {
+    let mut message = telegram_message(row_id, user_id, chat_id, false, caption);
+    message.images.push(InboundImage {
+        locator: "image-file".to_string(),
+        file_size: Some(12),
+        mime_type: Some("image/png".to_string()),
+        data: Some(b"\x89PNG\r\n\x1a\nbody".to_vec()),
+    });
+    message
+}
+
+fn valid_png() -> Vec<u8> {
+    b"\x89PNG\r\n\x1a\nbody".to_vec()
+}
+
+fn slack_image_message(
+    row_id: i64,
+    user_id: &str,
+    text: &str,
+    data: Option<Vec<u8>>,
+) -> RawMessage {
+    RawMessage {
+        row_id,
+        provider_event_id: Some(format!("Ev{row_id}")),
+        channel: "slack",
+        handle: user_id.to_string(),
+        chat_identifier: "T1|D1|1.2".to_string(),
+        text: text.to_string(),
+        voice: None,
+        images: vec![InboundImage {
+            locator: "F1".to_string(),
+            file_size: Some(12),
+            mime_type: Some("image/png".to_string()),
+            data,
+        }],
+        is_from_me: false,
+        is_group: false,
+        is_supported: true,
+        thread_id: None,
+    }
+}

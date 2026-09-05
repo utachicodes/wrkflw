@@ -1,0 +1,1002 @@
+//! Runs the Claude Code CLI headlessly for a single message.
+
+use std::io;
+use std::process::Stdio;
+use std::time::Duration;
+
+use base64::Engine as _;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+
+use crate::agent::{final_reply, Request, RunError, RunOutput};
+use crate::image::{media_type, MAX_IMAGE_BYTES, MAX_IMAGE_COUNT};
+use crate::util::non_empty_session_id;
+
+/// Runner invokes the `claude` binary in print mode.
+pub struct Runner {
+    pub bin: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RunMode {
+    Configured,
+    Unattended,
+    Evaluator,
+}
+
+#[derive(Deserialize, Default)]
+struct CliResult {
+    #[serde(default)]
+    result: String,
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    is_error: bool,
+    #[serde(default)]
+    subtype: String,
+}
+
+impl Runner {
+    /// Executes one turn and returns Claude's reply text, or a RunError.
+    pub async fn run(&self, req: Request<'_>, timeout: Duration) -> Result<RunOutput, RunError> {
+        self.run_with_mode(req, timeout, RunMode::Configured).await
+    }
+
+    pub async fn run_unattended(
+        &self,
+        req: Request<'_>,
+        timeout: Duration,
+    ) -> Result<RunOutput, RunError> {
+        self.run_with_mode(req, timeout, RunMode::Unattended).await
+    }
+
+    pub async fn run_evaluator(
+        &self,
+        req: Request<'_>,
+        timeout: Duration,
+    ) -> Result<RunOutput, RunError> {
+        self.run_with_mode(req, timeout, RunMode::Evaluator).await
+    }
+
+    async fn run_with_mode(
+        &self,
+        req: Request<'_>,
+        timeout: Duration,
+        mode: RunMode,
+    ) -> Result<RunOutput, RunError> {
+        let is_resume = !req.is_new;
+        let stream_input = if req.images.is_empty() {
+            None
+        } else {
+            Some(image_stream_input(&req)?)
+        };
+        let uses_stream_input = stream_input.is_some();
+        let attempt = crate::agent::output_with_retry(|| {
+            let mut cmd = self.command(&req, mode, uses_stream_input);
+            let stream_input = stream_input.clone();
+            async move {
+                let Some(input) = stream_input else {
+                    return cmd.output().await;
+                };
+                let mut child = cmd.spawn()?;
+                let mut stdin = child.stdin.take().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "claude stdin unavailable")
+                })?;
+                let write_input = async move {
+                    let result = stdin.write_all(&input).await;
+                    drop(stdin);
+                    result
+                };
+                let (write_result, output) = tokio::join!(write_input, child.wait_with_output());
+                let output = output?;
+                if output.status.success() {
+                    write_result?;
+                }
+                Ok(output)
+            }
+        });
+        let out = match tokio::time::timeout(timeout, attempt).await {
+            Err(_) => return Err(RunError::Timeout),
+            Ok(Err(e)) => return Err(RunError::Failed(format!("spawn claude: {e}"))),
+            Ok(Ok(o)) => o,
+        };
+
+        if uses_stream_input {
+            self.parse_stream_output(out, is_resume)
+        } else {
+            self.parse_output(out, is_resume)
+        }
+    }
+
+    fn command(&self, req: &Request<'_>, mode: RunMode, uses_stream_input: bool) -> Command {
+        let mut cmd = Command::new(&self.bin);
+        cmd.arg("-p");
+        if uses_stream_input {
+            cmd.arg("--input-format")
+                .arg("stream-json")
+                .arg("--output-format")
+                .arg("stream-json")
+                .arg("--verbose");
+            cmd.stdin(Stdio::piped());
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+        } else {
+            cmd.arg(req.prompt).arg("--output-format").arg("json");
+        }
+        if mode == RunMode::Evaluator {
+            cmd.arg("--safe-mode")
+                .arg("--tools")
+                .arg("")
+                .arg("--strict-mcp-config")
+                .arg("--mcp-config")
+                .arg("{}")
+                .arg("--no-chrome")
+                .arg("--no-session-persistence");
+        } else if mode == RunMode::Unattended {
+            cmd.arg("--permission-mode").arg("bypassPermissions");
+        }
+        if req.is_new {
+            cmd.arg("--session-id").arg(req.session_id);
+        } else {
+            cmd.arg("--resume").arg(req.session_id);
+        }
+        if !req.instructions.trim().is_empty() {
+            cmd.arg("--append-system-prompt").arg(req.instructions);
+        }
+        cmd.current_dir(req.work_dir);
+        cmd.kill_on_drop(true);
+        cmd
+    }
+
+    fn parse_stream_output(
+        &self,
+        out: std::process::Output,
+        is_resume: bool,
+    ) -> Result<RunOutput, RunError> {
+        let result = stream_result(&out.stdout);
+        let diagnostic = result
+            .as_ref()
+            .ok()
+            .map(|result| result.result.as_str())
+            .filter(|message| !message.trim().is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                (!stderr.is_empty()).then_some(stderr)
+            });
+        if is_resume && diagnostic.as_deref().is_some_and(missing_resume_error) {
+            return Err(RunError::SessionMissing(
+                "Claude could not find the saved session; frwrd will rebuild it from conversation history"
+                    .to_string(),
+            ));
+        }
+        let result = match result {
+            Ok(result) => result,
+            Err(()) if out.status.success() => {
+                return Err(RunError::Failed(
+                    "Claude returned malformed streaming JSON output".to_string(),
+                ));
+            }
+            Err(()) => {
+                return Err(RunError::Failed(
+                    "Claude image request failed; check Claude Code provider and authentication settings"
+                        .to_string(),
+                ));
+            }
+        };
+        if result.is_error || !out.status.success() {
+            return Err(RunError::Failed(
+                "Claude image request failed; check Claude Code provider and authentication settings"
+                    .to_string(),
+            ));
+        }
+        Ok(RunOutput {
+            reply: final_reply("claude", &result.result)?,
+            session_id: non_empty_session_id(&result.session_id).map(str::to_string),
+        })
+    }
+
+    fn parse_output(
+        &self,
+        out: std::process::Output,
+        is_resume: bool,
+    ) -> Result<RunOutput, RunError> {
+        // claude prints its JSON envelope to stdout even when it exits non-zero
+        // (e.g. an API error), so parse stdout regardless of exit status.
+        match serde_json::from_slice::<CliResult>(&out.stdout) {
+            Ok(r) if r.is_error || !out.status.success() => {
+                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                let msg = [r.result, r.subtype, stderr]
+                    .into_iter()
+                    .find(|message| !message.trim().is_empty())
+                    .unwrap_or_else(|| "claude exited unsuccessfully".to_string());
+                if is_resume && missing_resume_error(&msg) {
+                    Err(RunError::SessionMissing(msg))
+                } else {
+                    Err(RunError::Failed(msg))
+                }
+            }
+            Ok(r) => Ok(RunOutput {
+                reply: final_reply("claude", &r.result)?,
+                session_id: non_empty_session_id(&r.session_id).map(str::to_string),
+            }),
+            Err(_) => {
+                if out.status.success() {
+                    Ok(RunOutput {
+                        reply: final_reply("claude", &String::from_utf8_lossy(&out.stdout))?,
+                        session_id: None,
+                    })
+                } else {
+                    let message = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                    if is_resume && missing_resume_error(&message) {
+                        Err(RunError::SessionMissing(message))
+                    } else {
+                        Err(RunError::Failed(message))
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn image_stream_input(req: &Request<'_>) -> Result<Vec<u8>, RunError> {
+    if req.images.len() > MAX_IMAGE_COUNT {
+        return Err(RunError::Failed(format!(
+            "Claude image request has more than {MAX_IMAGE_COUNT} attachments"
+        )));
+    }
+
+    let mut total = 0usize;
+    let mut images = Vec::with_capacity(req.images.len());
+    for path in req.images {
+        let declared = std::fs::metadata(path)
+            .map_err(|error| {
+                RunError::Failed(format!(
+                    "read Claude image attachment {}: {error}",
+                    path.display()
+                ))
+            })?
+            .len();
+        let declared = usize::try_from(declared).map_err(|_| {
+            RunError::Failed("Claude image request exceeds the 6 MiB limit".to_string())
+        })?;
+        total = total.checked_add(declared).ok_or_else(|| {
+            RunError::Failed("Claude image request exceeds the 6 MiB limit".to_string())
+        })?;
+        if total > MAX_IMAGE_BYTES {
+            return Err(RunError::Failed(
+                "Claude image request exceeds the 6 MiB limit".to_string(),
+            ));
+        }
+
+        let bytes = std::fs::read(path).map_err(|error| {
+            RunError::Failed(format!(
+                "read Claude image attachment {}: {error}",
+                path.display()
+            ))
+        })?;
+        let media_type = media_type(&bytes).map_err(|_| {
+            RunError::Failed(
+                "Claude image request contains an unsupported image attachment".to_string(),
+            )
+        })?;
+        images.push((media_type, bytes));
+    }
+
+    let actual_total = images
+        .iter()
+        .try_fold(0usize, |total, (_, bytes)| total.checked_add(bytes.len()));
+    if !matches!(actual_total, Some(total) if total <= MAX_IMAGE_BYTES) {
+        return Err(RunError::Failed(
+            "Claude image request exceeds the 6 MiB limit".to_string(),
+        ));
+    }
+
+    let prompt = if req.prompt.trim().is_empty() {
+        "[Image attachment]"
+    } else {
+        req.prompt
+    };
+    let mut content = vec![json!({"type": "text", "text": prompt})];
+    content.extend(images.into_iter().map(|(media_type, bytes)| {
+        json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": base64::engine::general_purpose::STANDARD.encode(bytes),
+            }
+        })
+    }));
+    let mut input = serde_json::to_vec(&json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": content,
+        }
+    }))
+    .map_err(|_| RunError::Failed("build Claude streaming JSON input".to_string()))?;
+    input.push(b'\n');
+    Ok(input)
+}
+
+fn stream_result(stdout: &[u8]) -> Result<CliResult, ()> {
+    let stdout = std::str::from_utf8(stdout).map_err(|_| ())?;
+    let mut result = None;
+    for line in stdout.lines().filter(|line| !line.trim().is_empty()) {
+        let value: Value = serde_json::from_str(line).map_err(|_| ())?;
+        if value.get("type").and_then(Value::as_str) == Some("result") {
+            result = Some(serde_json::from_value(value).map_err(|_| ())?);
+        }
+    }
+    result.ok_or(())
+}
+
+fn missing_resume_error(message: &str) -> bool {
+    message
+        .to_ascii_lowercase()
+        .contains("no conversation found with session id")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    use crate::agent::Request;
+    use crate::test_support::{
+        assert_runner_contract, composed_prompt_parts, sh_arg, temp_dir, temp_path, ContractCase,
+        ContractRequest, ContractRunner, FakeCli, RunnerContract,
+    };
+
+    impl ContractRunner for Runner {
+        fn run<'a>(
+            &'a self,
+            req: Request<'a>,
+            timeout: Duration,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<RunOutput, RunError>> + 'a>>
+        {
+            Box::pin(self.run(req, timeout))
+        }
+    }
+
+    #[test]
+    fn ignores_empty_session_id() {
+        assert_eq!(non_empty_session_id(""), None);
+        assert_eq!(non_empty_session_id(" \t\n "), None);
+    }
+
+    #[test]
+    fn keeps_valid_session_id() {
+        assert_eq!(
+            non_empty_session_id(" claude-session "),
+            Some("claude-session")
+        );
+    }
+
+    #[test]
+    fn classifies_only_claude_resume_lookup_errors_as_missing_sessions() {
+        assert!(missing_resume_error(
+            "No conversation found with session ID 123"
+        ));
+        assert!(!missing_resume_error("tool session not found"));
+    }
+
+    #[tokio::test]
+    async fn satisfies_runner_contract() {
+        assert_runner_contract(RunnerContract {
+            name: "Claude",
+            new_session: contract_new_session,
+            resumed_session: contract_resumed_session,
+            failed_run: contract_failed_run,
+            timeout_run: contract_timeout_run,
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn unattended_new_session_bypasses_permissions() {
+        let args_path = temp_path("claude-args");
+        let work_dir = temp_dir("claude-work");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s\\n' '{{\"result\":\" hello \",\"session_id\":\"claude-returned\"}}'\n",
+            sh_arg(&args_path)
+        );
+        let cli = FakeCli::new("claude", &script);
+        let runner = Runner { bin: cli.bin() };
+        let (instructions, prompt) = composed_prompt_parts(&work_dir);
+
+        let out = runner
+            .run_unattended(
+                Request {
+                    session_id: "frwrd-session",
+                    is_new: true,
+                    work_dir: work_dir.to_str().unwrap(),
+                    instructions: &instructions,
+                    prompt: &prompt,
+                    images: &[],
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(out.reply, "hello");
+        assert_eq!(out.session_id, Some("claude-returned".to_string()));
+        let args = read_args(&args_path);
+        assert_arg_pair(&args, "--session-id", "frwrd-session");
+        let raw_args = std::fs::read_to_string(&args_path).unwrap();
+        assert!(raw_args.contains(&format!("--append-system-prompt\n{instructions}\n")));
+        assert!(raw_args.contains(&format!("-p\n{prompt}\n")));
+        assert_arg_pair(&args, "--permission-mode", "bypassPermissions");
+        for flag in ["--tools", "--allowed-tools", "--disallowed-tools"] {
+            assert!(
+                !args.contains(&flag.to_string()),
+                "unexpected {flag} in {args:?}"
+            );
+        }
+        assert!(!args.contains(&"--resume".to_string()));
+    }
+
+    #[tokio::test]
+    async fn unattended_resumed_session_bypasses_permissions() {
+        let args_path = temp_path("claude-resume-args");
+        let work_dir = temp_dir("claude-resume-work");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s\\n' '{{\"result\":\"resumed\",\"session_id\":\"claude-returned\"}}'\n",
+            sh_arg(&args_path)
+        );
+        let cli = FakeCli::new("claude", &script);
+        let runner = Runner { bin: cli.bin() };
+
+        let out = runner
+            .run_unattended(
+                Request {
+                    session_id: "existing-session",
+                    is_new: false,
+                    work_dir: work_dir.to_str().unwrap(),
+                    instructions: "assistant identity",
+                    prompt: "continue",
+                    images: &[],
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(out.reply, "resumed");
+        let args = read_args(&args_path);
+        assert_arg_pair(&args, "--resume", "existing-session");
+        assert_arg_pair(&args, "--permission-mode", "bypassPermissions");
+        assert!(!args.contains(&"--session-id".to_string()));
+        assert_arg_pair(&args, "--append-system-prompt", "assistant identity");
+        assert!(!args.contains(&"--add-dir".to_string()));
+        assert_arg_pair(&args, "-p", "continue");
+    }
+
+    #[tokio::test]
+    async fn rejects_successful_empty_replies() {
+        for stdout in [
+            r#"{"result":" \t\n ","session_id":"claude-session"}"#,
+            " \t ",
+        ] {
+            let work_dir = temp_dir("claude-empty-reply-work");
+            let cli = FakeCli::new(
+                "claude",
+                &format!("#!/bin/sh\nprintf '%s\\n' {}\n", sh_arg(stdout.as_ref())),
+            );
+            let runner = Runner { bin: cli.bin() };
+
+            let error = runner
+                .run(request(work_dir.to_str().unwrap()), Duration::from_secs(5))
+                .await
+                .unwrap_err();
+
+            assert_failed(error, "claude exited without a final reply");
+        }
+    }
+
+    #[tokio::test]
+    async fn configured_run_preserves_backend_permission_settings() {
+        let args_path = temp_path("claude-configured-args");
+        let work_dir = temp_dir("claude-configured-work");
+        let cli = FakeCli::new(
+            "claude",
+            &format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s\\n' '{{\"result\":\"reply\",\"session_id\":\"claude-session\"}}'\n",
+                sh_arg(&args_path)
+            ),
+        );
+        let runner = Runner { bin: cli.bin() };
+
+        runner
+            .run(request(work_dir.to_str().unwrap()), Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        let args = read_args(&args_path);
+        assert!(!args.contains(&"--permission-mode".to_string()));
+        assert_arg_pair(&args, "-p", "hello");
+        assert_arg_pair(&args, "--output-format", "json");
+        assert!(!args.contains(&"--input-format".to_string()));
+        assert!(!args.contains(&"--verbose".to_string()));
+    }
+
+    #[tokio::test]
+    async fn sends_ordered_images_with_text_on_new_and_resumed_sessions() {
+        for is_new in [true, false] {
+            let args_path = temp_path("claude-image-args");
+            let input_path = temp_path("claude-image-input");
+            let work_dir = temp_dir("claude-image-work");
+            let jpeg = temp_path("claude-image.jpg");
+            let png = temp_path("claude-image.png");
+            let webp = temp_path("claude-image.webp");
+            let jpeg_bytes = b"\xff\xd8\xffjpeg-body";
+            let png_bytes = b"\x89PNG\r\n\x1a\npng-body";
+            let webp_bytes = b"RIFF\x04\x00\x00\x00WEBPwebp-body";
+            std::fs::write(&jpeg, jpeg_bytes).unwrap();
+            std::fs::write(&png, png_bytes).unwrap();
+            std::fs::write(&webp, webp_bytes).unwrap();
+            let script = format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\ncat > {}\nprintf '%s\\n' '{{\"type\":\"system\",\"subtype\":\"init\"}}'\nprintf '%s\\n' '{{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"saw images\",\"session_id\":\"returned-session\"}}'\n",
+                sh_arg(&args_path),
+                sh_arg(&input_path),
+            );
+            let cli = FakeCli::new("claude", &script);
+            let runner = Runner { bin: cli.bin() };
+            let prompt = "compare these images";
+
+            let output = runner
+                .run(
+                    Request {
+                        session_id: if is_new {
+                            "new-session"
+                        } else {
+                            "existing-session"
+                        },
+                        is_new,
+                        work_dir: work_dir.to_str().unwrap(),
+                        instructions: "assistant identity",
+                        prompt,
+                        images: &[jpeg.clone(), png.clone(), webp.clone()],
+                    },
+                    Duration::from_secs(5),
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(output.reply, "saw images");
+            assert_eq!(output.session_id.as_deref(), Some("returned-session"));
+            let args = read_args(&args_path);
+            assert!(args.contains(&"-p".to_string()));
+            assert_arg_pair(&args, "--input-format", "stream-json");
+            assert_arg_pair(&args, "--output-format", "stream-json");
+            assert!(args.contains(&"--verbose".to_string()));
+            assert!(!args.contains(&prompt.to_string()));
+            let raw_args = std::fs::read_to_string(&args_path).unwrap();
+            for bytes in [
+                jpeg_bytes.as_slice(),
+                png_bytes.as_slice(),
+                webp_bytes.as_slice(),
+            ] {
+                assert!(
+                    !raw_args.contains(&base64::engine::general_purpose::STANDARD.encode(bytes))
+                );
+            }
+            if is_new {
+                assert_arg_pair(&args, "--session-id", "new-session");
+                assert!(!args.contains(&"--resume".to_string()));
+            } else {
+                assert_arg_pair(&args, "--resume", "existing-session");
+                assert!(!args.contains(&"--session-id".to_string()));
+            }
+
+            let input: Value =
+                serde_json::from_slice(&std::fs::read(&input_path).unwrap()).unwrap();
+            assert_eq!(input["type"], "user");
+            assert_eq!(input["message"]["role"], "user");
+            let content = input["message"]["content"].as_array().unwrap();
+            assert_eq!(content.len(), 4);
+            assert_eq!(content[0], json!({"type": "text", "text": prompt}));
+            for (part, media_type, bytes) in [
+                (&content[1], "image/jpeg", jpeg_bytes.as_slice()),
+                (&content[2], "image/png", png_bytes.as_slice()),
+                (&content[3], "image/webp", webp_bytes.as_slice()),
+            ] {
+                assert_eq!(part["type"], "image");
+                assert_eq!(part["source"]["type"], "base64");
+                assert_eq!(part["source"]["media_type"], media_type);
+                assert_eq!(
+                    part["source"]["data"],
+                    base64::engine::general_purpose::STANDARD.encode(bytes)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn image_only_stream_input_uses_a_text_placeholder() {
+        let work_dir = temp_dir("claude-image-only-work");
+        let image = temp_path("claude-image-only.png");
+        std::fs::write(&image, b"\x89PNG\r\n\x1a\nbody").unwrap();
+        let input = image_stream_input(&Request {
+            prompt: " \t ",
+            images: std::slice::from_ref(&image),
+            ..request(work_dir.to_str().unwrap())
+        })
+        .unwrap();
+        let input: Value = serde_json::from_slice(&input).unwrap();
+        let content = input["message"]["content"].as_array().unwrap();
+
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "[Image attachment]");
+        assert_eq!(content[1]["type"], "image");
+    }
+
+    #[tokio::test]
+    async fn rejects_images_above_the_raw_limit_before_spawning_claude() {
+        let work_dir = temp_dir("claude-large-image-work");
+        let image = temp_path("claude-large-image.jpg");
+        let marker = temp_path("claude-large-image-spawned");
+        let mut bytes = vec![0; MAX_IMAGE_BYTES + 1];
+        bytes[..3].copy_from_slice(b"\xff\xd8\xff");
+        std::fs::write(&image, bytes).unwrap();
+        let cli = FakeCli::new("claude", &format!("#!/bin/sh\ntouch {}\n", sh_arg(&marker)));
+        let runner = Runner { bin: cli.bin() };
+
+        let error = runner
+            .run(
+                Request {
+                    images: std::slice::from_ref(&image),
+                    ..request(work_dir.to_str().unwrap())
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+
+        assert_failed(error, "Claude image request exceeds the 6 MiB limit");
+        assert!(!marker.exists());
+    }
+
+    #[tokio::test]
+    async fn malformed_stream_output_is_a_typed_backend_error() {
+        let work_dir = temp_dir("claude-malformed-stream-work");
+        let image = temp_path("claude-malformed-stream.png");
+        std::fs::write(&image, b"\x89PNG\r\n\x1a\nbody").unwrap();
+        let cli = FakeCli::new(
+            "claude",
+            "#!/bin/sh\ncat >/dev/null\nprintf 'not-json\\n'\n",
+        );
+        let runner = Runner { bin: cli.bin() };
+
+        let error = runner
+            .run(
+                Request {
+                    images: std::slice::from_ref(&image),
+                    ..request(work_dir.to_str().unwrap())
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+
+        assert_failed(error, "Claude returned malformed streaming JSON output");
+    }
+
+    #[tokio::test]
+    async fn drains_large_startup_output_while_writing_image_input() {
+        let work_dir = temp_dir("claude-concurrent-stream-work");
+        let image = temp_path("claude-concurrent-stream.png");
+        let mut bytes = vec![0; 1024 * 1024];
+        bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        std::fs::write(&image, bytes).unwrap();
+        let cli = FakeCli::new(
+            "claude",
+            r#"#!/bin/sh
+i=0
+while [ "$i" -lt 10000 ]; do
+  printf '%s\n' '{"type":"system"}'
+  i=$((i + 1))
+done
+cat >/dev/null
+printf '%s\n' '{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"stream-session"}'
+"#,
+        );
+        let runner = Runner { bin: cli.bin() };
+
+        let output = runner
+            .run(
+                Request {
+                    images: std::slice::from_ref(&image),
+                    ..request(work_dir.to_str().unwrap())
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(output.reply, "done");
+        assert_eq!(output.session_id.as_deref(), Some("stream-session"));
+    }
+
+    #[tokio::test]
+    async fn image_failure_does_not_expose_base64_content() {
+        let work_dir = temp_dir("claude-image-failure-work");
+        let image = temp_path("claude-image-failure.png");
+        let bytes = b"\x89PNG\r\n\x1a\nprivate-image-data";
+        std::fs::write(&image, bytes).unwrap();
+        let cli = FakeCli::new("claude", "#!/bin/sh\ncat >&2\nprintf '\\n' >&2\nexit 1\n");
+        let runner = Runner { bin: cli.bin() };
+
+        let error = runner
+            .run(
+                Request {
+                    images: std::slice::from_ref(&image),
+                    ..request(work_dir.to_str().unwrap())
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        match error {
+            RunError::Failed(message) => {
+                assert!(message.contains("Claude image request failed"));
+                assert!(!message.contains(&encoded));
+            }
+            other => panic!("expected failed error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn image_resume_lookup_failure_remains_typed() {
+        let work_dir = temp_dir("claude-image-missing-resume-work");
+        let image = temp_path("claude-image-missing-resume.png");
+        std::fs::write(&image, b"\x89PNG\r\n\x1a\nbody").unwrap();
+        let cli = FakeCli::new(
+            "claude",
+            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"type\":\"result\",\"is_error\":true,\"result\":\"No conversation found with session ID missing\"}'\nexit 1\n",
+        );
+        let runner = Runner { bin: cli.bin() };
+
+        let error = runner
+            .run(
+                Request {
+                    session_id: "missing",
+                    is_new: false,
+                    images: std::slice::from_ref(&image),
+                    ..request(work_dir.to_str().unwrap())
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, RunError::SessionMissing(_)));
+    }
+
+    #[tokio::test]
+    async fn resumed_lookup_failure_is_typed_before_gateway_retry() {
+        let work_dir = temp_dir("claude-missing-resume-work");
+        let cli = FakeCli::new(
+            "claude",
+            "#!/bin/sh\nprintf '%s\n' '{\"is_error\":true,\"result\":\"No conversation found with session ID missing\"}'\nexit 1\n",
+        );
+        let runner = Runner { bin: cli.bin() };
+
+        let error = runner
+            .run(
+                Request {
+                    session_id: "missing",
+                    is_new: false,
+                    work_dir: work_dir.to_str().unwrap(),
+                    instructions: "",
+                    prompt: "continue",
+                    images: &[],
+                },
+                Duration::from_secs(5),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, RunError::SessionMissing(_)));
+    }
+
+    #[tokio::test]
+    async fn reports_cli_json_error() {
+        let work_dir = temp_dir("claude-error-work");
+        let cli = FakeCli::new(
+            "claude",
+            "#!/bin/sh\nprintf '%s\\n' '{\"is_error\":true,\"result\":\"api down\"}'\nexit 1\n",
+        );
+        let runner = Runner { bin: cli.bin() };
+
+        let err = match runner
+            .run(request(work_dir.to_str().unwrap()), Duration::from_secs(5))
+            .await
+        {
+            Err(err) => err,
+            Ok(_) => panic!("expected Claude run to fail"),
+        };
+
+        assert_failed(err, "api down");
+    }
+
+    #[tokio::test]
+    async fn rejects_non_zero_exit_with_non_error_json_envelope() {
+        let work_dir = temp_dir("claude-false-success-work");
+        let cli = FakeCli::new(
+            "claude",
+            "#!/bin/sh\nprintf '%s\\n' '{\"result\":\"permission denied\",\"is_error\":false}'\nexit 1\n",
+        );
+        let runner = Runner { bin: cli.bin() };
+
+        let error = runner
+            .run(request(work_dir.to_str().unwrap()), Duration::from_secs(5))
+            .await
+            .unwrap_err();
+
+        assert_failed(error, "permission denied");
+    }
+
+    #[tokio::test]
+    async fn reports_timeout() {
+        let work_dir = temp_dir("claude-timeout-work");
+        let cli = FakeCli::new("claude", "#!/bin/sh\nsleep 2\n");
+        let runner = Runner { bin: cli.bin() };
+
+        let err = match runner
+            .run(
+                request(work_dir.to_str().unwrap()),
+                Duration::from_millis(10),
+            )
+            .await
+        {
+            Err(err) => err,
+            Ok(_) => panic!("expected Claude run to time out"),
+        };
+
+        assert_timeout(err);
+    }
+
+    #[tokio::test]
+    async fn evaluator_disables_tools_and_mcp() {
+        let work_dir = temp_dir("claude-evaluator-work");
+        let args_path = temp_path("claude-evaluator-args");
+        let cli = FakeCli::new(
+            "claude",
+            &format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\nprintf '%s\\n' '{{\"result\":\"VERDICT: PASS\",\"session_id\":\"eval-session\"}}'\n",
+                sh_arg(&args_path)
+            ),
+        );
+        let runner = Runner { bin: cli.bin() };
+
+        runner
+            .run_evaluator(request(work_dir.to_str().unwrap()), Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        let args = read_args(&args_path);
+        assert_arg_pair(&args, "--tools", "");
+        assert_arg_pair(&args, "--mcp-config", "{}");
+        assert!(args.iter().any(|arg| arg == "--strict-mcp-config"));
+        assert!(args.iter().any(|arg| arg == "--safe-mode"));
+        assert!(!args.contains(&"--permission-mode".to_string()));
+    }
+
+    fn request(work_dir: &str) -> Request<'_> {
+        Request {
+            session_id: "session",
+            is_new: true,
+            work_dir,
+            instructions: "",
+            prompt: "hello",
+            images: &[],
+        }
+    }
+
+    fn read_args(path: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(path)
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn assert_arg_pair(args: &[String], flag: &str, value: &str) {
+        let idx = args
+            .iter()
+            .position(|arg| arg == flag)
+            .unwrap_or_else(|| panic!("missing flag {flag} in {args:?}"));
+        assert_eq!(args.get(idx + 1).map(String::as_str), Some(value));
+    }
+
+    fn assert_failed(err: RunError, expected: &str) {
+        match err {
+            RunError::Failed(msg) => assert_eq!(msg, expected),
+            RunError::Timeout => panic!("expected failed error, got timeout"),
+            RunError::SessionMissing(msg) => panic!("unexpected missing session: {msg}"),
+        }
+    }
+
+    fn assert_timeout(err: RunError) {
+        match err {
+            RunError::Timeout => {}
+            RunError::Failed(msg) => panic!("expected timeout, got failed: {msg}"),
+            RunError::SessionMissing(msg) => panic!("unexpected missing session: {msg}"),
+        }
+    }
+
+    fn contract_new_session() -> ContractCase {
+        let work_dir = temp_dir("claude-contract-new");
+        let cli = FakeCli::new(
+            "claude",
+            "#!/bin/sh\nprintf '%s\\n' '{\"result\":\"new reply\",\"session_id\":\"claude-session\"}'\n",
+        );
+        let bin = cli.bin();
+        ContractCase {
+            fake_cli: cli,
+            runner: Box::new(Runner { bin }),
+            request: contract_request(work_dir, true),
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    fn contract_resumed_session() -> ContractCase {
+        let work_dir = temp_dir("claude-contract-resume");
+        let cli = FakeCli::new(
+            "claude",
+            "#!/bin/sh\nprintf '%s\\n' '{\"result\":\"resumed reply\",\"session_id\":\"claude-session\"}'\n",
+        );
+        let bin = cli.bin();
+        ContractCase {
+            fake_cli: cli,
+            runner: Box::new(Runner { bin }),
+            request: contract_request(work_dir, false),
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    fn contract_failed_run() -> ContractCase {
+        let work_dir = temp_dir("claude-contract-fail");
+        let cli = FakeCli::new(
+            "claude",
+            "#!/bin/sh\nprintf '%s\\n' '{\"is_error\":true,\"result\":\"failed\"}'\nexit 1\n",
+        );
+        let bin = cli.bin();
+        ContractCase {
+            fake_cli: cli,
+            runner: Box::new(Runner { bin }),
+            request: contract_request(work_dir, true),
+            timeout: Duration::from_secs(5),
+        }
+    }
+
+    fn contract_timeout_run() -> ContractCase {
+        let work_dir = temp_dir("claude-contract-timeout");
+        let cli = FakeCli::new("claude", "#!/bin/sh\nsleep 2\n");
+        let bin = cli.bin();
+        ContractCase {
+            fake_cli: cli,
+            runner: Box::new(Runner { bin }),
+            request: contract_request(work_dir, true),
+            timeout: Duration::from_millis(10),
+        }
+    }
+
+    fn contract_request(work_dir: std::path::PathBuf, is_new: bool) -> ContractRequest {
+        ContractRequest {
+            session_id: "contract-session".to_string(),
+            is_new,
+            work_dir,
+            instructions: String::new(),
+            prompt: "hello".to_string(),
+            images: Vec::new(),
+        }
+    }
+}
