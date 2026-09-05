@@ -14,7 +14,7 @@ else
 fi
 sh "$repo_root/scripts/verify-cli-release.sh" v0.0.0 "$tmp_dir"
 
-awk '$2 != "slate_linux_arm64.tar.gz"' "$tmp_dir/checksums.txt" > "$tmp_dir/incomplete-checksums.txt"
+awk '$2 != "wrkflw_linux_arm64.tar.gz"' "$tmp_dir/checksums.txt" > "$tmp_dir/incomplete-checksums.txt"
 mv "$tmp_dir/incomplete-checksums.txt" "$tmp_dir/checksums.txt"
 if sh "$repo_root/scripts/verify-cli-release.sh" v0.0.0 "$tmp_dir"; then
   printf 'release verification accepted an incomplete checksum manifest\n' >&2

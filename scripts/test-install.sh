@@ -16,7 +16,7 @@ chmod +x "$tmp_dir/wrkflw"
 tar -C "$tmp_dir" -czf "$fixture_dir/wrkflw_linux_amd64.tar.gz" wrkflw
 (
   cd "$fixture_dir"
-  sha256sum slate_linux_amd64.tar.gz > checksums.txt
+  sha256sum wrkflw_linux_amd64.tar.gz > checksums.txt
 )
 
 cat > "$bin_dir/uname" <<'EOF'
@@ -52,7 +52,7 @@ chmod +x "$tmp_dir/wrkflw"
 tar -C "$tmp_dir" -czf "$fixture_dir/wrkflw_linux_amd64.tar.gz" wrkflw
 (
   cd "$fixture_dir"
-  sha256sum slate_linux_amd64.tar.gz > checksums.txt
+  sha256sum wrkflw_linux_amd64.tar.gz > checksums.txt
 )
 
 PATH="$bin_dir:$PATH" \
@@ -66,7 +66,7 @@ output=$("$install_dir/wrkflw")
   exit 1
 }
 
-printf '%064d  slate_linux_amd64.tar.gz\n' 0 > "$fixture_dir/checksums.txt"
+printf '%064d  wrkflw_linux_amd64.tar.gz\n' 0 > "$fixture_dir/checksums.txt"
 if PATH="$bin_dir:$PATH" \
   WRKFLW_INSTALL_DIR="$install_dir" \
   WRKFLW_VERSION=v1.0.2 \

@@ -1,4 +1,4 @@
-database_url := env_var_or_default("DATABASE_URL", "postgres://localhost/slate_dev?sslmode=disable")
+database_url := env_var_or_default("DATABASE_URL", "postgres://localhost/wrkflw_dev?sslmode=disable")
 
 default:
     @just --list

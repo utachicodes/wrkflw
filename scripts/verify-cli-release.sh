@@ -16,7 +16,7 @@ printf '%s\n' "$version" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || {
 }
 
 release_dir=$(CDPATH= cd -- "$release_dir" && pwd)
-expected_archives='slate_darwin_amd64.tar.gz slate_darwin_arm64.tar.gz slate_linux_amd64.tar.gz slate_linux_arm64.tar.gz'
+expected_archives='wrkflw_darwin_amd64.tar.gz wrkflw_darwin_arm64.tar.gz wrkflw_linux_amd64.tar.gz wrkflw_linux_arm64.tar.gz'
 
 for archive in $expected_archives; do
   [ -f "$release_dir/$archive" ] || {
@@ -56,10 +56,10 @@ for archive in $expected_archives; do
 done
 
 case "$(uname -s)/$(uname -m)" in
-  Darwin/x86_64) host_archive=slate_darwin_amd64.tar.gz ;;
-  Darwin/arm64) host_archive=slate_darwin_arm64.tar.gz ;;
-  Linux/x86_64|Linux/amd64) host_archive=slate_linux_amd64.tar.gz ;;
-  Linux/arm64|Linux/aarch64) host_archive=slate_linux_arm64.tar.gz ;;
+  Darwin/x86_64) host_archive=wrkflw_darwin_amd64.tar.gz ;;
+  Darwin/arm64) host_archive=wrkflw_darwin_arm64.tar.gz ;;
+  Linux/x86_64|Linux/amd64) host_archive=wrkflw_linux_amd64.tar.gz ;;
+  Linux/arm64|Linux/aarch64) host_archive=wrkflw_linux_arm64.tar.gz ;;
   *) host_archive= ;;
 esac
 

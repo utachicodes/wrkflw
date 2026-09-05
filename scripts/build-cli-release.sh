@@ -25,7 +25,7 @@ trap 'exit 1' HUP INT TERM
 for target in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
   os=${target%/*}
   arch=${target#*/}
-  archive="slate_${os}_${arch}.tar.gz"
+  archive="wrkflw_${os}_${arch}.tar.gz"
 
   (
     cd "$repo_root/cli"

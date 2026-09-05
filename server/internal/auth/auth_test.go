@@ -16,12 +16,12 @@ import (
 )
 
 func TestHashTokenIsStableAndDoesNotExposeToken(t *testing.T) {
-	first := hashToken("slate_secret")
-	second := hashToken("slate_secret")
+	first := hashToken("wrkflw_secret")
+	second := hashToken("wrkflw_secret")
 	if first != second {
 		t.Fatal("hashToken should be stable")
 	}
-	if first == "slate_secret" {
+	if first == "wrkflw_secret" {
 		t.Fatal("hashToken should not return the input")
 	}
 }

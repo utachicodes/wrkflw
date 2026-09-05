@@ -34,14 +34,14 @@ for role in "${WRKFLW_ROLES[@]}"; do
 done
 
 remaining_roles="$(project_roles)"
-remaining_slate_roles=""
+remaining_wrkflw_roles=""
 for role in "${WRKFLW_ROLES[@]}"; do
   if grep -Fx "$role" <<<"$remaining_roles" >/dev/null; then
-    remaining_slate_roles="${remaining_slate_roles}${remaining_slate_roles:+$'\n'}${role}"
+    remaining_wrkflw_roles="${remaining_wrkflw_roles}${remaining_wrkflw_roles:+$'\n'}${role}"
   fi
 done
-if [ -n "$remaining_slate_roles" ]; then
-  printf 'Default compute service account still has wrkflw project roles:\n%s\n' "$remaining_slate_roles" >&2
+if [ -n "$remaining_wrkflw_roles" ]; then
+  printf 'Default compute service account still has wrkflw project roles:\n%s\n' "$remaining_wrkflw_roles" >&2
   exit 1
 fi
 
