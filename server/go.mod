@@ -1,4 +1,4 @@
-module github.com/owainlewis/slate.do/server
+module github.com/utachicodes/wrkflw/server
 
 go 1.26
 

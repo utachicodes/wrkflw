@@ -13,14 +13,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/boards"
-	"github.com/owainlewis/slate.do/server/internal/cleanup"
-	"github.com/owainlewis/slate.do/server/internal/config"
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/migrations"
-	slatehttp "github.com/owainlewis/slate.do/server/internal/server"
-	"github.com/owainlewis/slate.do/server/internal/web"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/boards"
+	"github.com/utachicodes/wrkflw/server/internal/cleanup"
+	"github.com/utachicodes/wrkflw/server/internal/config"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/migrations"
+	wrkflwhttp "github.com/utachicodes/wrkflw/server/internal/server"
+	"github.com/utachicodes/wrkflw/server/internal/web"
 )
 
 func main() {
@@ -55,7 +55,7 @@ func run(args []string) error {
 }
 
 func usage() error {
-	return errors.New("usage: slate serve|migrate|cleanup|seed-admin|accounts list|accounts disable <email>|accounts enable <email>")
+	return errors.New("usage: wrkflw serve|migrate|cleanup|seed-admin|accounts list|accounts disable <email>|accounts enable <email>")
 }
 
 func serve(cfg config.Config) error {
@@ -95,7 +95,7 @@ func serve(cfg config.Config) error {
 	if cfg.ResendAPIKey != "" && cfg.ResendFrom != "" {
 		passwordResetSender = auth.NewResendSender(cfg.ResendAPIKey, cfg.ResendFrom, nil)
 	}
-	app := slatehttp.NewApp(staticFS, db, cfg.CookieSecure, auth.Options{
+	app := wrkflwhttp.NewApp(staticFS, db, cfg.CookieSecure, auth.Options{
 		InviteCode:          cfg.InviteCode,
 		AppBaseURL:          cfg.AppBaseURL,
 		PasswordResetSender: passwordResetSender,
@@ -103,14 +103,14 @@ func serve(cfg config.Config) error {
 	go app.RunPasswordResetWorker(ctx)
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           slatehttp.WithRequestTimeout(app.Routes(), cfg.RequestTimeout),
+		Handler:           wrkflwhttp.WithRequestTimeout(app.Routes(), cfg.RequestTimeout),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       cfg.HTTPIdleTimeout,
 	}
 
 	errs := make(chan error, 1)
 	go func() {
-		slog.Info("serving slate",
+		slog.Info("serving wrkflw",
 			"addr", server.Addr,
 			"app_max_instances", cfg.AppMaxInstances,
 			"db_pool_max_connections", db.MaxConnections(),
@@ -152,7 +152,7 @@ func accounts(cfg config.Config, args []string) error {
 	switch args[0] {
 	case "list":
 		if len(args) != 1 {
-			return errors.New("usage: slate accounts list")
+			return errors.New("usage: wrkflw accounts list")
 		}
 		members, err := store.ListMembers(context.Background())
 		if err != nil {
@@ -169,7 +169,7 @@ func accounts(cfg config.Config, args []string) error {
 		return nil
 	case "disable", "enable":
 		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
-			return fmt.Errorf("usage: slate accounts %s <email>", args[0])
+			return fmt.Errorf("usage: wrkflw accounts %s <email>", args[0])
 		}
 		disabled := args[0] == "disable"
 		if err := store.SetMemberDisabled(context.Background(), args[1], disabled); err != nil {
