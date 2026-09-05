@@ -743,6 +743,8 @@ a.bg-primary { color: var(--primary-foreground); }
   .data-table th:nth-child(n+3), .data-table td:nth-child(n+3) { display: none; }
   .workspace-table th:last-child, .workspace-table td:last-child { display: table-cell; }
   .settings-row { grid-template-columns: 1fr; }
+  .qr-connect { flex-direction: column; }
+  .qr-frame { align-self: flex-start; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .workspace-summary-item { padding: .6rem .45rem; text-align: center; }
   .workspace-summary-item strong { font-size: 1.15rem; }
