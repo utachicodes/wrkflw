@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/entitlements"
-	"github.com/owainlewis/slate.do/server/internal/httpapi"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/entitlements"
+	"github.com/utachicodes/wrkflw/server/internal/httpapi"
 )
 
 func TestListTasksRejectsMalformedLocationIDsBeforeStore(t *testing.T) {

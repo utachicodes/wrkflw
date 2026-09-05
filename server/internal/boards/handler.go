@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/owainlewis/slate.do/server/internal/auth"
-	"github.com/owainlewis/slate.do/server/internal/entitlements"
-	"github.com/owainlewis/slate.do/server/internal/httpapi"
+	"github.com/utachicodes/wrkflw/server/internal/auth"
+	"github.com/utachicodes/wrkflw/server/internal/entitlements"
+	"github.com/utachicodes/wrkflw/server/internal/httpapi"
 )
 
 type Handler struct {
@@ -253,7 +253,7 @@ func (h *Handler) CreateTaskEntry(w http.ResponseWriter, r *http.Request, user a
 		return
 	}
 	if user.AgentID != "" {
-		input.RunID = strings.TrimSpace(r.Header.Get("X-Slate-Run-ID"))
+		input.RunID = strings.TrimSpace(r.Header.Get("X-Wrkflw-Run-ID"))
 	}
 	entry, err := h.store.CreateTaskEntry(r.Context(), user.ID, user.AgentID, user.DisplayName, r.PathValue("id"), input)
 	if handleStoreError(w, err) {
@@ -273,7 +273,7 @@ func (h *Handler) UpdateTask(w http.ResponseWriter, r *http.Request, user auth.U
 	var task Task
 	var err error
 	if user.AgentID != "" {
-		input.RunID = strings.TrimSpace(r.Header.Get("X-Slate-Run-ID"))
+		input.RunID = strings.TrimSpace(r.Header.Get("X-Wrkflw-Run-ID"))
 		task, err = h.store.UpdateTaskForAgent(r.Context(), user.ID, user.AgentID, r.PathValue("id"), input)
 	} else {
 		task, err = h.store.UpdateTask(r.Context(), user.ID, r.PathValue("id"), input)
@@ -401,7 +401,7 @@ func (h *Handler) AgentClaim(w http.ResponseWriter, r *http.Request, user auth.U
 	var task Task
 	var err error
 	if user.AgentID != "" {
-		runID := strings.TrimSpace(r.Header.Get("X-Slate-Run-ID"))
+		runID := strings.TrimSpace(r.Header.Get("X-Wrkflw-Run-ID"))
 		if runID != "" {
 			task, err = h.store.ClaimTaskForManagedRun(r.Context(), user.ID, user.AgentID, r.PathValue("id"), runID)
 		} else {
@@ -428,7 +428,7 @@ func (h *Handler) AgentStatus(w http.ResponseWriter, r *http.Request, user auth.
 	if user.AgentID != "" {
 		task, err = h.store.UpdateTaskForAgent(r.Context(), user.ID, user.AgentID, r.PathValue("id"), UpdateTaskInput{
 			Status: &input.Status,
-			RunID:  strings.TrimSpace(r.Header.Get("X-Slate-Run-ID")),
+			RunID:  strings.TrimSpace(r.Header.Get("X-Wrkflw-Run-ID")),
 		})
 	} else {
 		task, err = h.store.UpdateTask(r.Context(), user.ID, r.PathValue("id"), UpdateTaskInput{Status: &input.Status})
@@ -448,7 +448,7 @@ func (h *Handler) AgentDone(w http.ResponseWriter, r *http.Request, user auth.Us
 	if user.AgentID != "" {
 		task, err = h.store.UpdateTaskForAgent(r.Context(), user.ID, user.AgentID, r.PathValue("id"), UpdateTaskInput{
 			Status: &status,
-			RunID:  strings.TrimSpace(r.Header.Get("X-Slate-Run-ID")),
+			RunID:  strings.TrimSpace(r.Header.Get("X-Wrkflw-Run-ID")),
 		})
 	} else {
 		task, err = h.store.UpdateTask(r.Context(), user.ID, r.PathValue("id"), UpdateTaskInput{Status: &status})

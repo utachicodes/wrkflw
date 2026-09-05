@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/owainlewis/slate.do/server/internal/entitlements"
+	"github.com/utachicodes/wrkflw/server/internal/entitlements"
 )
 
 const (

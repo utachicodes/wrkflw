@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/entitlements"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/entitlements"
 )
 
 func TestStatusOnlyUpdateDoesNotAcquireQuotaAfterTaskLock(t *testing.T) {

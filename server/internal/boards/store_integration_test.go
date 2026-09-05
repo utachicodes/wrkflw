@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/owainlewis/slate.do/server/internal/database"
-	"github.com/owainlewis/slate.do/server/internal/entitlements"
-	"github.com/owainlewis/slate.do/server/internal/migrations"
+	"github.com/utachicodes/wrkflw/server/internal/database"
+	"github.com/utachicodes/wrkflw/server/internal/entitlements"
+	"github.com/utachicodes/wrkflw/server/internal/migrations"
 )
 
 func TestConcurrentProResourceCreationCannotExceedLimits(t *testing.T) {
@@ -74,14 +74,14 @@ func TestCardConversationKeepsHumanAndAssignedAgentOnOneRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	commentInput := CreateTaskEntryInput{Kind: "comment", Body: "Keep it concise", IdempotencyKey: "comment-attempt"}
-	comment, err := store.CreateTaskEntry(ctx, ownerID, "", "Owain", card.ID, commentInput)
+	comment, err := store.CreateTaskEntry(ctx, ownerID, "", "Abdoullah", card.ID, commentInput)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if comment.AuthorKind != "human" || comment.AuthorName != "Owain" {
+	if comment.AuthorKind != "human" || comment.AuthorName != "Abdoullah" {
 		t.Fatalf("human comment author = %#v", comment)
 	}
-	retriedComment, err := store.CreateTaskEntry(ctx, ownerID, "", "Owain", card.ID, commentInput)
+	retriedComment, err := store.CreateTaskEntry(ctx, ownerID, "", "Abdoullah", card.ID, commentInput)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,13 +90,13 @@ func TestCardConversationKeepsHumanAndAssignedAgentOnOneRecord(t *testing.T) {
 	}
 	changedComment := commentInput
 	changedComment.Body = "A different comment"
-	if _, err := store.CreateTaskEntry(ctx, ownerID, "", "Owain", card.ID, changedComment); !errors.Is(err, ErrIdempotencyKey) {
+	if _, err := store.CreateTaskEntry(ctx, ownerID, "", "Abdoullah", card.ID, changedComment); !errors.Is(err, ErrIdempotencyKey) {
 		t.Fatalf("changed comment retry error = %v, want ErrIdempotencyKey", err)
 	}
 	concurrentIDs := make([]string, 8)
 	concurrentInput := CreateTaskEntryInput{Kind: "comment", Body: "One concurrent comment", IdempotencyKey: "concurrent-comment"}
 	concurrentResults := runConcurrently(len(concurrentIDs), func(index int) error {
-		entry, err := store.CreateTaskEntry(ctx, ownerID, "", "Owain", card.ID, concurrentInput)
+		entry, err := store.CreateTaskEntry(ctx, ownerID, "", "Abdoullah", card.ID, concurrentInput)
 		if err == nil {
 			concurrentIDs[index] = entry.ID
 		}
@@ -2736,9 +2736,9 @@ func TestLegacyDoneUpdatesAndFiltersMapToStatus(t *testing.T) {
 
 func openIntegrationDB(t *testing.T) *database.Pool {
 	t.Helper()
-	url := os.Getenv("SLATE_TEST_DATABASE_URL")
+	url := os.Getenv("WRKFLW_TEST_DATABASE_URL")
 	if url == "" {
-		t.Skip("set SLATE_TEST_DATABASE_URL to run board store integration tests")
+		t.Skip("set WRKFLW_TEST_DATABASE_URL to run board store integration tests")
 	}
 	db, err := database.Open(context.Background(), url)
 	if err != nil {
@@ -2753,7 +2753,7 @@ func openIntegrationDB(t *testing.T) *database.Pool {
 
 func createIntegrationUser(t *testing.T, ctx context.Context, db *database.Pool) string {
 	t.Helper()
-	email := fmt.Sprintf("%s-%d@slate.test", strings.ToLower(t.Name()), time.Now().UnixNano())
+	email := fmt.Sprintf("%s-%d@wrkflw.test", strings.ToLower(t.Name()), time.Now().UnixNano())
 	var id string
 	if err := db.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash)
@@ -2773,7 +2773,7 @@ func createIntegrationUser(t *testing.T, ctx context.Context, db *database.Pool)
 
 func createFreeIntegrationUser(t *testing.T, ctx context.Context, db *database.Pool) string {
 	t.Helper()
-	email := fmt.Sprintf("free-%s-%d@slate.test", strings.ToLower(t.Name()), time.Now().UnixNano())
+	email := fmt.Sprintf("free-%s-%d@wrkflw.test", strings.ToLower(t.Name()), time.Now().UnixNano())
 	var id string
 	if err := db.QueryRow(ctx, `
 		INSERT INTO users (email, password_hash, role)
