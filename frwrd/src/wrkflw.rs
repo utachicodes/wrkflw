@@ -21,14 +21,15 @@ const TASK_TEXT_BYTES: usize = 16 * 1024;
 const IDEMPOTENCY_KEY_BYTES: usize = 200;
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CreateTaskInput {
     title: String,
     description: String,
-    scheduledDate: String,
+    scheduled_date: String,
     kind: String,
     status: String,
     priority: String,
-    overrideLimit: bool,
+    override_limit: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,9 +58,7 @@ impl Wrkflw {
         if !cfg.wrkflw_mirror_enabled() {
             return None;
         }
-        let Some(token) = cfg.wrkflw_token() else {
-            return None;
-        };
+        let token = cfg.wrkflw_token()?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(10))
             .build()
@@ -148,11 +147,11 @@ impl Wrkflw {
         let input = CreateTaskInput {
             title: truncate_runes(title, TASK_TITLE_RUNES),
             description: description.to_string(),
-            scheduledDate: String::new(),
+            scheduled_date: String::new(),
             kind: "action".to_string(),
             status: String::new(),
             priority: String::new(),
-            overrideLimit: false,
+            override_limit: false,
         };
         let response = self
             .client
