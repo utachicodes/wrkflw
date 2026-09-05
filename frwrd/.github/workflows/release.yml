@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, for example v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: validate release tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Check tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if ! git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}^{commit}"; then
+            echo "release ref '${RELEASE_TAG}' is not an existing Git tag" >&2
+            exit 1
+          fi
+          scripts/check-release-version.sh "${RELEASE_TAG}"
+
+  build:
+    name: build release (${{ matrix.os }})
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Build
+        run: cargo build --locked --release
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          target="$(rustc -Vv | awk '/host:/ { print $2 }')"
+          package="frwrd-${tag}-${target}"
+
+          mkdir -p "dist/${package}"
+          cp target/release/frwrd "dist/${package}/"
+          cp README.md LICENSE config.toml.example install.sh "dist/${package}/"
+
+          tar -C dist -czf "dist/${package}.tar.gz" "${package}"
+          shasum -a 256 "dist/${package}.tar.gz" > "dist/${package}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" dist/* --clobber
+          else
+            gh release create "${TAG}" dist/* \
+              --title "${TAG}" \
+              --verify-tag \
+              --notes-file RELEASE_NOTES.md
+          fi
