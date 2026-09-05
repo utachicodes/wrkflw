@@ -980,6 +980,9 @@ mod tests {
             paths: FrwrdPaths::from_root(root.join("runtime")).unwrap(),
             agent_commands: AgentCommands::default(),
             assistant_dir: root.to_string_lossy().to_string(),
+            wrkflw_base_url: default_wrkflw_base_url(),
+            wrkflw_token: None,
+            wrkflw_mirror: false,
         }
     }
 

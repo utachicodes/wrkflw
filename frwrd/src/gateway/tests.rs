@@ -229,6 +229,7 @@ fn setup_failure_ctx(
         )),
         schedule_destination: None,
         voice: None,
+        wrkflw: None,
         setup_failure_replies: Arc::new(Mutex::new(Vec::new())),
         sent_replies: Arc::new(Mutex::new(Vec::new())),
         sent_voice_replies: Arc::new(Mutex::new(Vec::new())),
@@ -3997,6 +3998,9 @@ fn test_config(state_path: &str, _sessions_dir: &str, assistant_dir: &str) -> Co
         },
         agent_commands: crate::config::AgentCommands::default(),
         assistant_dir: assistant_dir.to_string(),
+        wrkflw_base_url: crate::config::DEFAULT_WRKFLW_BASE_URL.to_string(),
+        wrkflw_token: None,
+        wrkflw_mirror: false,
     }
 }
 
