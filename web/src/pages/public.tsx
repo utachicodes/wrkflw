@@ -143,7 +143,7 @@ export function LandingPage() {
 }
 
 function AuthLayout({ children, quote = "Work is infinite. Attention is not." }: { children: React.ReactNode; quote?: string }) {
-  return <div className="auth-shell"><section className="auth-panel"><Brand />{children}</section><aside className="auth-art"><img src="/landing-slabs.jpg" alt="wrkflw slabs against a pale wall" /><div className="auth-art-copy"><p>{quote}</p></div></aside></div>
+  return <div className="auth-shell"><section className="auth-panel"><Brand />{children}<p className="auth-footnote">One shared task list for you and your agents.</p></section><aside className="auth-art"><img src="/landing-cinematic.jpg" alt="" aria-hidden="true" /><div className="auth-art-brand"><BrandMark /><span>wrkflw</span></div><div className="auth-art-copy"><p>{quote}</p></div></aside></div>
 }
 
 function safeNext(value: string | null) {
