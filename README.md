@@ -63,6 +63,15 @@ Because runners live on your machines, you bring your own agent runtime (Claude 
 
 ## Local start
 
+Non-technical? One line in PowerShell does everything (installs, database,
+demo login, sample board, server):
+
+```powershell
+irm https://raw.githubusercontent.com/utachicodes/wrkflw/main/scripts/setup-demo.ps1 | iex
+```
+
+Manual setup:
+
 ```bash
 createdb wrkflw_dev
 export DATABASE_URL=postgres://localhost/wrkflw_dev?sslmode=disable

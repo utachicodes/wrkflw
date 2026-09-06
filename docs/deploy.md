@@ -237,3 +237,14 @@ go run ./server/cmd/wrkflw accounts enable person@example.com
 ```
 
 Disabling a member immediately deletes all sessions and revokes all API and agent tokens. Re-enabling permits a new password login, but does not restore revoked sessions or tokens.
+
+## Database backup and restore
+
+Postgres is the only state. Back it up on a schedule and test the restore:
+
+```bash
+pg_dump --format=custom --file=wrkflw-backup.dump "$DATABASE_URL"
+pg_restore --clean --dbname="$DATABASE_URL" wrkflw-backup.dump
+```
+
+Rotate a leaked credential at the single place it dies: bot tokens with BotFather, API tokens in Settings -> API access, agent credentials on the agent page, account passwords via password reset, and the Postgres superuser with ALTER USER. A rotated secret takes effect immediately except pooled server connections, which recycle within their configured lifetime.
