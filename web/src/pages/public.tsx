@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Bot, CheckCircle2, Flag, ListFilter, Sparkles, SquareTerminal } from "lucide-react"
+import { CheckCircle2, Flag, ListFilter } from "lucide-react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 import { Brand, BrandMark } from "@/components/shell"
 import { Button } from "@/components/ui/button"
@@ -163,9 +163,9 @@ export function LandingPage() {
         </header>
         <main className="v2-hero">
           <div className="v2-trust">
-            <span className="v2-avatar"><Bot aria-hidden="true" /></span>
-            <span className="v2-avatar"><SquareTerminal aria-hidden="true" /></span>
-            <span className="v2-avatar"><Sparkles aria-hidden="true" /></span>
+            <span className="v2-avatar"><i className="fa-brands fa-microsoft" aria-hidden="true" /></span>
+            <span className="v2-avatar"><i className="fa-brands fa-amazon" aria-hidden="true" /></span>
+            <span className="v2-avatar"><i className="fa-brands fa-google" aria-hidden="true" /></span>
             <span className="v2-trust-pill">Works with every major coding agent</span>
           </div>
           <h1 className="v2-headline"><span>Intelligence</span><span className="light">Designed To Work</span></h1>

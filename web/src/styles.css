@@ -542,14 +542,14 @@ a.bg-primary { color: var(--primary-foreground); }
 .v2-hero { display: flex; width: 100%; max-width: 900px; flex: 1; flex-direction: column; align-items: center; justify-content: center; margin: 0 auto; text-align: center; }
 .v2-trust { display: inline-flex; align-items: center; --trust-size: clamp(36px, 4.5vw, 42px); margin-bottom: clamp(16px, 2.5vh, 26px); }
 .v2-avatar { display: grid; width: var(--trust-size); height: var(--trust-size); place-items: center; border: 1px solid rgb(255 255 255 / .4); border-radius: 50%; background: #28282a; color: #111; }
-.v2-avatar svg { width: calc(var(--trust-size) * .34); height: calc(var(--trust-size) * .34); }
+.v2-avatar svg, .v2-avatar i { width: calc(var(--trust-size) * .34); height: calc(var(--trust-size) * .34); font-size: calc(var(--trust-size) * .34); line-height: 1; }
 .v2-avatar + .v2-avatar { margin-left: calc(var(--trust-size) * -.42); }
 .v2-avatar:nth-child(1) { z-index: 1; }
 .v2-avatar:nth-child(2) { z-index: 2; }
 .v2-avatar:nth-child(3) { z-index: 4; }
 .v2-avatar { position: relative; }
 .v2-avatar::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: #fff; }
-.v2-avatar svg { position: relative; z-index: 1; }
+.v2-avatar svg, .v2-avatar i { position: relative; z-index: 1; }
 .v2-trust-pill { display: inline-flex; height: var(--trust-size); align-items: center; margin-left: calc(var(--trust-size) * -.42); border: 1px solid rgb(255 255 255 / .4); border-radius: 999px; background: #28282a; padding-right: clamp(16px, 2vw, 22px); padding-left: calc(var(--trust-size) * .58); color: #c4c2c3; font-size: clamp(12px, 1.4vw, 13.5px); font-weight: 500; white-space: nowrap; }
 .v2-headline { margin: 0; color: #111; font-family: "BubbledotICG-FinePos", "Geist Pixel Circle", monospace; font-size: clamp(28px, 6.2vw, 80px); font-weight: 400; letter-spacing: -.04em; line-height: 1.12; white-space: nowrap; overflow: hidden; }
 .v2-headline span { display: block; }
