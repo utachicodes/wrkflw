@@ -390,19 +390,20 @@ test("wordmark and typography use one neutral Inter system", async t => {
   const appHeadingFamily = await page.locator(".page-heading h1").evaluate(element => getComputedStyle(element).fontFamily);
 
   await page.goto(`${origin}/`);
-  await page.locator(".hero h1").waitFor();
+  await page.locator(".v2-headline").waitFor();
   const landingBrand = page.locator(".brand-mark").first();
   assert.equal(await landingBrand.locator(".brand-word").innerText(), "wrkflw");
   assert.equal(await landingBrand.locator(".brand-logo").count(), 1);
   assert.equal(await landingBrand.locator(".brand-suffix").count(), 0);
   assert.equal(await landingBrand.evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
-  const landingFamilies = await page.locator(".hero h1, .landing-section h2, .landing-preview-main > header h3").evaluateAll(elements => elements.map(element => getComputedStyle(element).fontFamily));
+  const displayFamily = await page.locator(".v2-headline").evaluate(element => getComputedStyle(element).fontFamily);
+  assert.match(displayFamily, /BubbledotICG-FinePos/);
 
   await page.goto(`${origin}/early-access`);
   await page.getByRole("heading", { name: "Join wrkflw." }).waitFor();
   const authHeadingFamily = await page.locator(".auth-form-wrap h1").evaluate(element => getComputedStyle(element).fontFamily);
 
-  for (const family of [appHeadingFamily, ...landingFamilies, authHeadingFamily]) {
+  for (const family of [appHeadingFamily, authHeadingFamily]) {
     assert.match(family, /Inter/);
     assert.doesNotMatch(family, /Castoro|Georgia|Iowan/i);
   }
@@ -413,22 +414,20 @@ test("public routes stay light and the app restores the saved dark theme", async
   const { page, pageErrors } = await startApp(t);
   assert.equal(await page.locator("html").evaluate(element => element.classList.contains("dark")), true);
   await page.getByRole("button", { name: "wrkflw home" }).click();
-  await page.getByRole("heading", { name: /One shared task list for you and your agents/ }).waitFor();
+  await page.getByRole("heading", { name: /Intelligence/ }).waitFor();
+  await page.getByText("Designed To Work", { exact: true }).waitFor();
   assert.equal(await page.locator("html").evaluate(element => element.classList.contains("dark")), false);
   assert.equal(await page.locator("html").evaluate(element => getComputedStyle(element).colorScheme), "light");
   assert.equal(await page.locator('meta[name="description"]').getAttribute("content"), "wrkflw is a shared task list for people and AI agents. Keep tasks, handoffs and results in one place, and turn repeatable processes into reusable templates.");
-  assert.equal(await page.locator(".landing-nav .brand-word").evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
-  assert.equal(await page.locator(".landing-nav .brand-mark .brand-logo").count(), 1);
-  assert.equal(await page.locator(".landing-preview-brand .brand-logo").count(), 1);
-  assert.equal(await page.locator(".landing-preview-summary > div").count(), 5);
-  assert.equal(await page.locator(".landing-preview-priority").count(), 1);
-  assert.equal(await page.getByText("Any agent", { exact: false }).count(), 0);
-  assert.equal(new Set(await page.locator(".landing-preview-column").evaluateAll(columns => columns.map(column => getComputedStyle(column).backgroundColor))).size, 1);
+  assert.equal(await page.locator(".v2-header .brand-word").evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
+  assert.equal(await page.locator(".v2-header .brand-mark .brand-logo").count(), 1);
+  assert.equal(await page.locator(".v2-stat").count(), 4);
+  assert.equal(await page.getByText("Coming soon", { exact: true }).count(), 1);
+  assert.equal(await page.locator(".v2-cta").evaluate(element => element.tagName), "SPAN");
   assert.deepEqual((await new AxeBuilder({ page }).analyze()).violations, []);
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
-  assert.equal(await page.locator(".landing-preview-main").evaluate(element => element.scrollHeight <= element.clientHeight), true);
-  await page.getByRole("link", { name: "Open wrkflw", exact: true }).click();
+  await page.goto(`${origin}/app/tasks`);
   await page.getByRole("heading", { name: "All tasks", exact: true }).waitFor();
   assert.equal(await page.locator("html").evaluate(element => element.classList.contains("dark")), true);
   assert.deepEqual(pageErrors, []);

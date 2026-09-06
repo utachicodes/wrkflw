@@ -56,13 +56,18 @@ test("login discards cached data from the previous account", async () => {
   expect(requests.some(request => request.startsWith("GET /api/v1/tasks?"))).toBe(true)
 })
 
-test("the landing page explains wrkflw as a shared task list", async () => {
+test("the landing page shows the video hero", async () => {
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ authenticated: false }), { status: 200 })))
   renderApp()
-  expect(await screen.findByRole("heading", { name: /one shared task list for you and your agents/i })).toBeInTheDocument()
-  expect(screen.getByText(/wrkflw keeps every task, brief, conversation and result in one place/i)).toBeInTheDocument()
-  expect(screen.getByRole("heading", { name: "Save reusable templates" })).toBeInTheDocument()
-  expect(screen.getAllByRole("link", { name: /log in/i })[0]).toHaveAttribute("href", "/login")
+  expect(await screen.findByRole("heading", { name: /Intelligence/ })).toBeInTheDocument()
+  expect(screen.getByText("Designed To Work")).toBeInTheDocument()
+  expect(screen.getByText(/one board where people and coding agents share the same work/i)).toBeInTheDocument()
+  expect(screen.getByText("Coming soon")).toBeInTheDocument()
+  expect(screen.getByText("Works with every major coding agent")).toBeInTheDocument()
+  for (const label of ["Platform Uptime", "Autonomous Runtime", "Product Primitives", "Shared Inbox"]) {
+    expect(screen.getByText(label)).toBeInTheDocument()
+  }
+  expect(document.querySelector(".v2-bg-video source")).toHaveAttribute("src", expect.stringContaining("cloudfront.net"))
 })
 
 test("the login form preserves protected destinations", async () => {
@@ -88,7 +93,7 @@ test("the templates route starts new accounts without shared defaults", async ()
 })
 
 test.each([
-  ["/", /one shared task list for you and your agents/i],
+  ["/", /Intelligence/],
   ["/login", "Welcome back."],
   ["/forgot-password", "Reset your password."],
   ["/reset-password", "Choose a new password."],

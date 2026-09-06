@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, CheckCircle2, Flag, ListFilter } from "lucide-react"
+import { Bot, CheckCircle2, Flag, ListFilter, Sparkles, SquareTerminal } from "lucide-react"
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom"
 import { Brand, BrandMark } from "@/components/shell"
 import { Button } from "@/components/ui/button"
@@ -102,42 +102,80 @@ function LandingProductPreview() {
   )
 }
 
-export function LandingPage() {
-  const session = useSession()
-  const signedIn = Boolean(session.data?.authenticated)
+const landingStats = [
+  { icon: "%", target: 99.99, decimals: 2, suffix: "%", label: "Platform Uptime", delay: 480, duration: 1500 },
+  { icon: "*", target: 24, decimals: 0, suffix: "/7", label: "Autonomous Runtime", delay: 570, duration: 1580 },
+  { icon: "#", target: 4, decimals: 0, suffix: "", label: "Product Primitives", delay: 660, duration: 1660 },
+  { icon: "+", target: 1, decimals: 0, suffix: "", label: "Shared Inbox", delay: 750, duration: 1740 },
+]
+
+function useCountUp(target: number, decimals: number, suffix: string, delayMs: number, durationMs: number) {
+  const [text, setText] = React.useState(() => target.toFixed(decimals) + suffix)
+  React.useEffect(() => {
+    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    if (typeof window.requestAnimationFrame !== "function") return
+    let frame = 0
+    let start: number | null = null
+    const timeout = window.setTimeout(() => {
+      const step = (now: number) => {
+        if (start === null) start = now
+        const progress = Math.min((now - start) / durationMs, 1)
+        const eased = 1 - Math.pow(1 - progress, 3)
+        setText((target * eased).toFixed(decimals) + suffix)
+        if (progress < 1) frame = requestAnimationFrame(step)
+      }
+      frame = requestAnimationFrame(step)
+    }, delayMs)
+    return () => {
+      window.clearTimeout(timeout)
+      cancelAnimationFrame(frame)
+    }
+  }, [target, decimals, suffix, delayMs, durationMs])
+  return text
+}
+
+function LandingStat({ icon, target, decimals, suffix, label, delay, duration }: { icon: string; target: number; decimals: number; suffix: string; label: string; delay: number; duration: number }) {
+  const value = useCountUp(target, decimals, suffix, delay, duration)
   return (
-    <div className="landing-page">
-      <header className="landing-hero-shell">
-        <nav className="landing-nav">
+    <div className="v2-stat">
+      <span className="v2-stat-icon" aria-hidden="true">{icon}</span>
+      <span className="v2-stat-value">{value}</span>
+      <span className="v2-stat-label">{label}</span>
+    </div>
+  )
+}
+
+export function LandingPage() {
+  return (
+    <div className="v2-landing">
+      <video className="v2-bg-video" autoPlay muted loop playsInline aria-hidden="true">
+        <source
+          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260809_012548_ef22562c-c0ae-4816-ad9d-f8922af4e6a7.mp4"
+          type="video/mp4"
+        />
+      </video>
+      <div className="v2-page">
+        <header className="v2-header">
+          <a className="v2-logo" href="/" aria-label="wrkflw">
+            <img src="/logo.svg" alt="" width="56" height="38" />
+          </a>
           <Brand />
-          <div className="landing-nav-links"><a href="/cli">CLI guide</a><Button asChild size="sm" className="landing-nav-cta"><Link to={signedIn ? "/app/tasks" : "/login"}>{signedIn ? "Open app" : "Log in"}<ArrowRight className="size-3.5" /></Link></Button></div>
-        </nav>
-        <section className="hero">
-          <div className="hero-copy">
-            <p className="landing-kicker">Task management for people and AI agents</p>
-            <h1>One shared task list <em>for you and your agents.</em></h1>
-            <p>wrkflw keeps every task, brief, conversation and result in one place. You decide what matters, agents move the work forward, and nothing gets lost between you.</p>
-            <div className="hero-actions"><Button asChild size="lg" className="landing-primary-cta"><Link to={signedIn ? "/app/tasks" : "/login"}>{signedIn ? "Open wrkflw" : "Log in to wrkflw"}<ArrowRight className="size-4" /></Link></Button><Button asChild size="lg" variant="ghost" className="landing-secondary-cta"><a href="mailto:abdoullahaljersi@gmail.com?subject=wrkflw access">Request access</a></Button></div>
-            <div className="hero-proof" aria-label="wrkflw principles"><span>Shared tasks</span><span>Clear ownership</span><span>People + agents</span></div>
+        </header>
+        <main className="v2-hero">
+          <div className="v2-trust">
+            <span className="v2-avatar"><Bot aria-hidden="true" /></span>
+            <span className="v2-avatar"><SquareTerminal aria-hidden="true" /></span>
+            <span className="v2-avatar"><Sparkles aria-hidden="true" /></span>
+            <span className="v2-trust-pill">Works with every major coding agent</span>
           </div>
-          <figure className="hero-product">
-            <div className="hero-product-bar" aria-hidden="true"><i /><i /><i /><span>wrkflw / all tasks</span></div>
-            <LandingProductPreview />
-            <figcaption>wrkflw showing shared tasks, priorities and progress for people and agents.</figcaption>
-          </figure>
-        </section>
-      </header>
-      <main>
-        <section className="landing-section">
-          <p className="landing-kicker">Templates</p>
-          <h2>Save a process once. Run it whenever the work comes up.</h2>
-          <div className="principles">
-            <article className="principle"><span>01</span><h3>Organise the work</h3><p>Use lists and priorities to keep projects, commitments and next steps clear.</p></article>
-            <article className="principle"><span>02</span><h3>Save reusable templates</h3><p>Capture a repeatable process as phases, ordered tasks and the instructions needed to do the work.</p></article>
-            <article className="principle"><span>03</span><h3>Run with people and agents</h3><p>Start a template and wrkflw creates the work. Each step has a clear owner, status and place for the result.</p></article>
-          </div>
-        </section>
-      </main>
+          <h1 className="v2-headline"><span>Intelligence</span><span className="light">Designed To Work</span></h1>
+          <p className="v2-subhead">One board where people and coding agents share the same work. Put tasks on the board, let agents execute on machines you own, and stay in the loop when it matters.</p>
+          <span className="v2-cta">Coming soon</span>
+        </main>
+        <footer className="v2-stats" aria-label="Platform highlights">
+          {landingStats.map(stat => <LandingStat key={stat.label} {...stat} />)}
+        </footer>
+      </div>
     </div>
   )
 }
