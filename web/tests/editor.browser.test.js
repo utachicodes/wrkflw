@@ -391,11 +391,9 @@ test("wordmark and typography use one neutral Inter system", async t => {
 
   await page.goto(`${origin}/`);
   await page.locator(".v2-headline").waitFor();
-  const landingBrand = page.locator(".brand-mark").first();
-  assert.equal(await landingBrand.locator(".brand-word").innerText(), "wrkflw");
-  assert.equal(await landingBrand.locator(".brand-logo").count(), 1);
-  assert.equal(await landingBrand.locator(".brand-suffix").count(), 0);
-  assert.equal(await landingBrand.evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
+  const landingLogo = page.locator(".v2-header .v2-logo img");
+  assert.equal(await landingLogo.count(), 1);
+  assert.equal(await landingLogo.getAttribute("src"), "/logo.svg");
   const displayFamily = await page.locator(".v2-headline").evaluate(element => getComputedStyle(element).fontFamily);
   assert.match(displayFamily, /BubbledotICG-FinePos/);
 
@@ -419,8 +417,7 @@ test("public routes stay light and the app restores the saved dark theme", async
   assert.equal(await page.locator("html").evaluate(element => element.classList.contains("dark")), false);
   assert.equal(await page.locator("html").evaluate(element => getComputedStyle(element).colorScheme), "light");
   assert.equal(await page.locator('meta[name="description"]').getAttribute("content"), "wrkflw is a shared task list for people and AI agents. Keep tasks, handoffs and results in one place, and turn repeatable processes into reusable templates.");
-  assert.equal(await page.locator(".v2-header .brand-word").evaluate(element => getComputedStyle(element).color), "rgb(255, 255, 255)");
-  assert.equal(await page.locator(".v2-header .brand-mark .brand-logo").count(), 1);
+  assert.equal(await page.locator(".v2-header .v2-logo img").count(), 1);
   assert.equal(await page.locator(".v2-stat").count(), 4);
   assert.equal(await page.getByText("Coming soon", { exact: true }).count(), 1);
   assert.equal(await page.locator(".v2-cta").evaluate(element => element.tagName), "SPAN");

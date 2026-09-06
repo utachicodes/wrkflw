@@ -159,7 +159,6 @@ export function LandingPage() {
           <a className="v2-logo" href="/" aria-label="wrkflw">
             <img src="/logo.svg" alt="" width="56" height="38" />
           </a>
-          <Brand />
         </header>
         <main className="v2-hero">
           <div className="v2-trust">

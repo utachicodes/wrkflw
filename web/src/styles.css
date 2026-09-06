@@ -538,7 +538,6 @@ a.bg-primary { color: var(--primary-foreground); }
 .v2-logo:hover { transform: scale(1.04); }
 .v2-logo img { width: 82%; height: 82%; object-fit: contain; }
 .v2-header .brand-mark { color: #fff; }
-.v2-header .brand-mark .brand-logo { width: 1.75rem; height: 1.2rem; }
 .v2-hero { display: flex; width: 100%; max-width: 900px; flex: 1; flex-direction: column; align-items: center; justify-content: center; margin: 0 auto; text-align: center; }
 .v2-trust { display: inline-flex; align-items: center; --trust-size: clamp(36px, 4.5vw, 42px); margin-bottom: clamp(16px, 2.5vh, 26px); }
 .v2-avatar { display: grid; width: var(--trust-size); height: var(--trust-size); place-items: center; border: 1px solid rgb(255 255 255 / .4); border-radius: 50%; background: #28282a; color: #111; }
