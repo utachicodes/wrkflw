@@ -96,6 +96,8 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /api/v1/gateway/config", a.person(a.gateway.GetConfig))
 	mux.HandleFunc("PATCH /api/v1/gateway/config", a.person(a.gateway.UpdateConfig))
 	mux.HandleFunc("POST /api/v1/gateway/pull", a.person(a.gateway.PullConfig))
+	mux.HandleFunc("POST /api/v1/gateway/outbox", a.person(a.gateway.EnqueueReply))
+	mux.HandleFunc("GET /api/v1/gateway/outbox", a.person(a.gateway.PollReplies))
 	mux.HandleFunc("GET /api/v1/stats/summary", a.user(a.boards.GetWorkspaceSummary))
 	mux.HandleFunc("GET /api/v1/agent/tasks", a.user(a.boards.AgentTasks))
 	mux.HandleFunc("POST /api/v1/agent/tasks/{id}/claim", a.user(a.boards.AgentClaim))

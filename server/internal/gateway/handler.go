@@ -15,6 +15,8 @@ type configStore interface {
 	Get(context.Context, string) (Config, error)
 	Upsert(context.Context, string, Config) (Config, error)
 	MarkPulled(context.Context, string) (Config, error)
+	Enqueue(context.Context, string, string, string) (OutboxMessage, error)
+	Poll(context.Context, string) ([]OutboxMessage, error)
 }
 
 // Handler serves the gateway configuration endpoints. All routes sit behind
@@ -67,6 +69,40 @@ func (h *Handler) PullConfig(w http.ResponseWriter, r *http.Request, user auth.U
 		return
 	}
 	writeJSON(w, http.StatusOK, config)
+}
+
+// EnqueueReply stores one chat reply for the owner's gateway daemon to
+// deliver into the conversation thread.
+func (h *Handler) EnqueueReply(w http.ResponseWriter, r *http.Request, user auth.User) {
+	var input struct {
+		Thread string `json:"thread"`
+		Body   string `json:"body"`
+	}
+	if !httpapi.DecodeJSON(w, r, &input) {
+		return
+	}
+	message, err := h.store.Enqueue(r.Context(), user.ID, input.Thread, input.Body)
+	if errors.Is(err, ErrInvalidConfig) {
+		writeError(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), "invalid gateway configuration\n"))
+		return
+	}
+	if err != nil {
+		writeInternalError(w, err, "reply could not be queued")
+		return
+	}
+	writeJSON(w, http.StatusCreated, message)
+}
+
+// PollReplies claims and deletes pending replies for the owner's gateway
+// daemon. Only the daemon calls this; the settings UI reads config, never
+// the outbox.
+func (h *Handler) PollReplies(w http.ResponseWriter, r *http.Request, user auth.User) {
+	messages, err := h.store.Poll(r.Context(), user.ID)
+	if err != nil {
+		writeInternalError(w, err, "replies could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"messages": messages})
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target *Config) bool {

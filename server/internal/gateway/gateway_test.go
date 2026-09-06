@@ -113,6 +113,50 @@ func TestUpsertRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestOutboxEnqueuePollAndIsolation(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	store := NewStore(db)
+	first := createTestUser(t, ctx, db)
+	second := createTestUser(t, ctx, db)
+
+	if _, err := store.Enqueue(ctx, first, "", "hello"); err == nil {
+		t.Fatal("empty thread accepted")
+	}
+	if _, err := store.Enqueue(ctx, first, "telegram:dm:1", ""); err == nil {
+		t.Fatal("empty body accepted")
+	}
+	firstMessage, err := store.Enqueue(ctx, first, "telegram:dm:1", "hello from the board")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Enqueue(ctx, second, "telegram:dm:9", "other account"); err != nil {
+		t.Fatal(err)
+	}
+
+	messages, err := store.Poll(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 1 || messages[0].ID != firstMessage.ID || messages[0].Body != "hello from the board" {
+		t.Fatalf("poll = %#v", messages)
+	}
+	again, err := store.Poll(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Fatalf("second poll = %#v, want empty", again)
+	}
+	other, err := store.Poll(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(other) != 1 {
+		t.Fatalf("other account poll = %#v, want its own message", other)
+	}
+}
+
 func TestMarkPulledStampsAndIsolatesAccounts(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
