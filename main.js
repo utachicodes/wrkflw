@@ -5,6 +5,27 @@
 (function () {
   "use strict";
 
+  /* Background video: force mute through the property (not just the
+     attribute) so autoplay policies on Chrome, Safari, and phones pass. */
+  (function () {
+    var video = document.querySelector(".bg-video");
+    if (!video) {
+      return;
+    }
+    try {
+      video.muted = true;
+      video.defaultMuted = true;
+      video.setAttribute("muted", "");
+      video.setAttribute("playsinline", "");
+      var attempt = video.play();
+      if (attempt && typeof attempt.catch === "function") {
+        attempt.catch(function () {});
+      }
+    } catch (error) {
+      /* Poster frame stays; never break the rest of the page. */
+    }
+  })();
+
   /* Mobile menu ---------------------------------------------------------- */
 
   var body = document.body;

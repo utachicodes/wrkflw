@@ -409,7 +409,7 @@ test("wordmark and typography use one neutral Inter system", async t => {
 });
 
 test("public routes stay light and the app restores the saved dark theme", async t => {
-  const { page, pageErrors } = await startApp(t);
+  const { page, origin, pageErrors } = await startApp(t);
   assert.equal(await page.locator("html").evaluate(element => element.classList.contains("dark")), true);
   await page.getByRole("button", { name: "wrkflw home" }).click();
   await page.getByRole("heading", { name: /Intelligence/ }).waitFor();

@@ -148,7 +148,22 @@ function LandingStat({ icon, target, decimals, suffix, label, delay, duration }:
 export function LandingPage() {
   return (
     <div className="v2-landing">
-      <video className="v2-bg-video" autoPlay muted loop playsInline aria-hidden="true">
+      <video
+        className="v2-bg-video"
+        autoPlay
+        muted
+        loop
+        playsInline
+        disablePictureInPicture
+        aria-hidden="true"
+        ref={element => {
+          if (element) {
+            element.muted = true
+            element.defaultMuted = true
+            void element.play().catch(() => {})
+          }
+        }}
+      >
         <source
           src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260809_012548_ef22562c-c0ae-4816-ad9d-f8922af4e6a7.mp4"
           type="video/mp4"
