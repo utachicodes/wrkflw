@@ -160,7 +160,10 @@ export function LandingPage() {
           if (element) {
             element.muted = true
             element.defaultMuted = true
-            void element.play().catch(() => {})
+            const attempt = element.play() as unknown as Promise<void> | undefined
+            if (attempt && typeof attempt.catch === "function") {
+              attempt.catch(() => {})
+            }
           }
         }}
       >
