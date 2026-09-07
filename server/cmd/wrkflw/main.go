@@ -23,6 +23,8 @@ import (
 	"github.com/utachicodes/wrkflw/server/internal/web"
 )
 
+var version = "dev"
+
 func main() {
 	if err := run(os.Args); err != nil {
 		slog.Error("command failed", "error", err)
@@ -39,6 +41,8 @@ func run(args []string) error {
 		return err
 	}
 	switch args[1] {
+	case "version", "--version":
+		return printVersion()
 	case "serve":
 		return serve(cfg)
 	case "migrate":
@@ -54,8 +58,12 @@ func run(args []string) error {
 	}
 }
 
+func printVersion() error {
+	return json.NewEncoder(os.Stdout).Encode(map[string]string{"version": version})
+}
+
 func usage() error {
-	return errors.New("usage: wrkflw serve|migrate|cleanup|seed-admin|accounts list|accounts disable <email>|accounts enable <email>")
+	return errors.New("usage: wrkflw version|serve|migrate|cleanup|seed-admin|accounts list|accounts disable <email>|accounts enable <email>")
 }
 
 func serve(cfg config.Config) error {
