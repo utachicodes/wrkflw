@@ -149,3 +149,9 @@ site at [utachicodes/frwrd](https://github.com/utachicodes/frwrd)).
 ## Deploy
 
 See [docs/deploy.md](docs/deploy.md).
+
+## Contributing
+
+MIT licensed. Start with [CONTRIBUTING.md](CONTRIBUTING.md), the
+[maintainer handoff](HANDOFF.md), and [why wrkflw exists](docs/why-wrkflw.md).
+Report vulnerabilities privately per [SECURITY.md](SECURITY.md).
