@@ -29,18 +29,18 @@ jobs:
     env:
       WRKFLW_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/wrkflw_test?sslmode=disable
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache-dependency-path: |
             server/go.mod
             cli/go.mod
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
         with:
           just-version: "1.50.0"
       - run: npm ci
