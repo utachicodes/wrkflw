@@ -1,5 +1,8 @@
-name: Release CLI
+name: Release
 
+# Two release lines share the v* tag namespace but never mix. A tag that
+# matches frwrd/Cargo.toml ships the gateway; any other v* tag ships the
+# app (wrkflw CLI + wrkflw-server, same version).
 on:
   push:
     tags:
@@ -7,6 +10,25 @@ on:
 
 permissions:
   contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.kinds.outputs.app }}
+      gateway: ${{ steps.kinds.outputs.gateway }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: kinds
+        run: |
+          cargo_ver=$(python3 -c "import tomllib;print(tomllib.load(open('frwrd/Cargo.toml','rb'))['package']['version'])")
+          if [ "$GITHUB_REF_NAME" = "v$cargo_ver" ]; then
+            echo "app=false" >> "$GITHUB_OUTPUT"
+            echo "gateway=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "app=true" >> "$GITHUB_OUTPUT"
+            echo "gateway=false" >> "$GITHUB_OUTPUT"
+          fi
 
 jobs:
   test:
@@ -21,8 +43,9 @@ jobs:
         working-directory: cli
       - run: sh scripts/test-install.sh
 
-  release:
-    needs: test
+  release-app:
+    needs: [test, resolve]
+    if: needs.resolve.outputs.app == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -31,14 +54,88 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"
-          cache-dependency-path: cli/go.mod
-      - name: Build release archives
+          cache-dependency-path: |
+            cli/go.mod
+            server/go.mod
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm run build:web
+      - name: Build CLI release archives
         run: sh scripts/build-cli-release.sh "$GITHUB_REF_NAME" dist
+      - name: Build server release archives
+        run: sh scripts/build-server-release.sh "$GITHUB_REF_NAME" dist
       - name: Create checksums
         run: cd dist && sha256sum *.tar.gz > checksums.txt
-      - name: Verify release artifacts
+      - name: Verify CLI release artifacts
         run: sh scripts/verify-cli-release.sh "$GITHUB_REF_NAME" dist
+      - name: Verify server release artifacts
+        run: sh scripts/verify-server-release.sh "$GITHUB_REF_NAME" dist
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "wrkflw CLI $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "wrkflw $GITHUB_REF_NAME"
+
+  release-gateway:
+    needs: [test, resolve]
+    if: needs.resolve.outputs.gateway == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Check tag matches package version
+        run: sh frwrd/scripts/check-release-version.sh "$GITHUB_REF_NAME"
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Build
+        working-directory: frwrd
+        run: cargo build --locked --release
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          target="$(rustc -Vv | awk '/host:/ { print $2 }')"
+          package="frwrd-${tag}-${target}"
+          mkdir -p "dist/${package}"
+          cp frwrd/target/release/frwrd "dist/${package}/"
+          cp frwrd/README.md frwrd/LICENSE frwrd/config.toml.example frwrd/install.sh "dist/${package}/"
+          tar -C dist -czf "dist/${package}.tar.gz" "${package}"
+          (cd dist && shasum -a 256 "${package}.tar.gz" > "${package}.tar.gz.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}
+          path: dist/*.tar.gz*
+          if-no-files-found: error
+
+  publish-gateway:
+    name: publish gateway release
+    needs: [release-gateway, resolve]
+    if: needs.resolve.outputs.gateway == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --notes-file frwrd/RELEASE_NOTES.md --title "$GITHUB_REF_NAME"

@@ -24,6 +24,7 @@ test-unit:
     npm run test:web
     sh scripts/test-install.sh
     sh scripts/test-cloudbuild.sh
+    sh scripts/test-server-release.sh
 
 test-ci:
     npm run build:web
@@ -33,6 +34,7 @@ test-ci:
     npm run test:browser
     sh scripts/test-install.sh
     sh scripts/test-cloudbuild.sh
+    sh scripts/test-server-release.sh
 
 build:
     npm run build:web
