@@ -18,7 +18,7 @@ jobs:
       app: ${{ steps.kinds.outputs.app }}
       gateway: ${{ steps.kinds.outputs.gateway }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - id: kinds
         run: |
           cargo_ver=$(python3 -c "import tomllib;print(tomllib.load(open('frwrd/Cargo.toml','rb'))['package']['version'])")
@@ -34,8 +34,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache-dependency-path: cli/go.mod
@@ -48,16 +48,16 @@ jobs:
     if: needs.resolve.outputs.app == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache-dependency-path: |
             cli/go.mod
             server/go.mod
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -88,10 +88,10 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.ref }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Check tag matches package version
@@ -115,7 +115,7 @@ jobs:
           cp frwrd/README.md frwrd/LICENSE frwrd/config.toml.example frwrd/install.sh "dist/${package}/"
           tar -C dist -czf "dist/${package}.tar.gz" "${package}"
           (cd dist && shasum -a 256 "${package}.tar.gz" > "${package}.tar.gz.sha256")
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.os }}
           path: dist/*.tar.gz*
@@ -127,10 +127,10 @@ jobs:
     if: needs.resolve.outputs.gateway == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.ref }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
